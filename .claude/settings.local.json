@@ -11,7 +11,18 @@
       "Bash(cargo test:*)",
       "Bash(taskkill:*)",
       "Bash(chmod:*)",
-      "Bash(rustup target add:*)"
+      "Bash(rustup target add:*)",
+      "Bash(cargo install:*)",
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/cmdline-tools/latest/bin/sdkmanager.bat\" --list)",
+      "Bash(\"$LOCALAPPDATA/Android/Sdk/cmdline-tools/latest/bin/sdkmanager\" --install \"ndk;27.0.12077973\")",
+      "Bash(cmd.exe //c \"$LOCALAPPDATA\\\\Android\\\\Sdk\\\\cmdline-tools\\\\latest\\\\bin\\\\sdkmanager.bat\" --install \"ndk;27.0.12077973\")",
+      "Bash(export ANDROID_NDK_HOME=\"$LOCALAPPDATA/Android/Sdk/ndk/27.0.12077973\")",
+      "Bash(cargo ndk:*)",
+      "Bash(ls:*)",
+      "Bash(gradle --version:*)",
+      "Bash(gradle wrapper:*)",
+      "Bash(export:*)",
+      "Bash(./gradlew assembleDebug:*)"
     ]
   }
 }

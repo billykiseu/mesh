@@ -340,7 +340,7 @@ mod jni_bindings {
 
     #[no_mangle]
     pub extern "system" fn Java_com_mesh_app_MeshBridge_meshGetNodeId(
-        mut env: JNIEnv,
+        env: JNIEnv,
         _class: JClass,
     ) -> jstring {
         match get_node_id() {
@@ -351,7 +351,7 @@ mod jni_bindings {
 
     #[no_mangle]
     pub extern "system" fn Java_com_mesh_app_MeshBridge_meshGetNodeIdShort(
-        mut env: JNIEnv,
+        env: JNIEnv,
         _class: JClass,
     ) -> jstring {
         match get_node_id_short() {
