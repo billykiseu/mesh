@@ -7,7 +7,11 @@
       "Bash(cargo build:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(cargo test:*)",
+      "Bash(taskkill:*)",
+      "Bash(chmod:*)",
+      "Bash(rustup target add:*)"
     ]
   }
 }
