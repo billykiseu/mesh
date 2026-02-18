@@ -77,6 +77,22 @@ impl NodeIdentity {
     pub fn verifying_key_bytes(&self) -> [u8; 32] {
         self.node_id
     }
+
+    /// Securely delete the identity key file: overwrite with zeros, then delete.
+    pub fn secure_delete(path: &Path) -> Result<()> {
+        if path.exists() {
+            // Overwrite with zeros
+            let zeros = [0u8; 32];
+            std::fs::write(path, zeros).context("Failed to overwrite key file")?;
+            // Force sync to disk
+            if let Ok(f) = std::fs::File::open(path) {
+                let _ = f.sync_all();
+            }
+            // Delete
+            std::fs::remove_file(path).context("Failed to delete key file")?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

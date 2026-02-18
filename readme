@@ -1,0 +1,27 @@
+#Things to do
+
+documentation for the whole thing
+
+let proced wth my requets dditional context though.
+
+expand feature set, as i metioned above, along with these:
+fix android one, it has some flaws here and there, 
+ie when running it just ays starting, and when i stop ot the app doenst 
+see to be in synch with what its evidently doing
+
+#safetly mechanisms,
+ie nuke my prevos data, kill node and al my information,
+i can chose my node name, and add infoe and upadte ot as needed
+verify everything is encryted
+create pin on first toem running, so that wecan protect the app from unauthorized access
+a way to find a tunnel to the inetnet iem a node that is conected to the internet, ie fining the way out
+if i have internet conectcon, i sort of have a beacon that showa im the way out for my mesh
+a nice doc that describes the app featirs on first run to be able to tell use abut all 
+ much betr UI, we wan feel like an actual app, not a proof of concept, we want to be able to do 
+things like see the devices in the mesh, see their info, and be able to interact with them, like send messages, files, etc
+
+when i have 1000 devices in a mesh, we ulcok more featires like broadcast, SOS, broadcast lication
+hopefull
+
+
+

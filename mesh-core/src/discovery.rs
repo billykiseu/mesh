@@ -35,6 +35,7 @@ pub struct DiscoveredPeer {
     pub display_name: String,
     pub addr: SocketAddr,
     pub listen_port: u16,
+    pub has_internet: bool,
 }
 
 /// Runs the UDP broadcast discovery service.
@@ -42,14 +43,16 @@ pub struct DiscoveryService {
     our_node_id: [u8; 32],
     display_name: String,
     listen_port: u16,
+    has_internet: bool,
 }
 
 impl DiscoveryService {
-    pub fn new(node_id: [u8; 32], display_name: String, listen_port: u16) -> Self {
+    pub fn new(node_id: [u8; 32], display_name: String, listen_port: u16, has_internet: bool) -> Self {
         Self {
             our_node_id: node_id,
             display_name,
             listen_port,
+            has_internet,
         }
     }
 
@@ -73,11 +76,12 @@ impl DiscoveryService {
         let our_node_id = self.our_node_id;
         let display_name = self.display_name.clone();
         let listen_port = self.listen_port;
+        let has_internet = self.has_internet;
 
         // Spawn the broadcast sender
         let mut shutdown_tx = shutdown.clone();
         tokio::spawn(async move {
-            let payload = DiscoveryPayload::new(our_node_id, display_name, listen_port);
+            let payload = DiscoveryPayload::new(our_node_id, display_name, listen_port, has_internet);
             let msg = payload.to_message();
             let data = msg.to_bytes();
             let broadcast_target = format!("{}:{}", BROADCAST_ADDR, DISCOVERY_PORT);
@@ -116,6 +120,7 @@ impl DiscoveryService {
                                                 display_name: payload.display_name,
                                                 addr: SocketAddr::new(src_addr.ip(), payload.listen_port),
                                                 listen_port: payload.listen_port,
+                                                has_internet: payload.has_internet,
                                             };
                                             debug!("Discovered peer: {} at {}", peer.display_name, peer.addr);
                                             let _ = tx.send(peer).await;

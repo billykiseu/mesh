@@ -16,6 +16,10 @@ pub struct PeerState {
     pub session_keys: Option<SessionKeys>,
     /// Channel to send messages to this peer's TCP write task.
     pub sender: mpsc::Sender<MeshMessage>,
+    // Profile fields
+    pub bio: String,
+    pub capabilities: Vec<String>,
+    pub is_gateway: bool,
 }
 
 impl PeerState {
@@ -32,6 +36,9 @@ impl PeerState {
             last_seen: Instant::now(),
             session_keys: None,
             sender,
+            bio: String::new(),
+            capabilities: Vec::new(),
+            is_gateway: false,
         }
     }
 
@@ -111,5 +118,10 @@ impl PeerManager {
         self.peers.iter()
             .map(|(id, p)| (*id, p.sender.clone()))
             .collect()
+    }
+
+    /// Get a list of all peer IDs.
+    pub fn peer_ids(&self) -> Vec<[u8; 32]> {
+        self.peers.keys().copied().collect()
     }
 }

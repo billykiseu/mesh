@@ -2,7 +2,7 @@
 2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
 3    package="com.mesh.app"
 4    android:versionCode="1"
-5    android:versionName="0.1.0" >
+5    android:versionName="0.2.0" >
 6
 7    <uses-sdk
 8        android:minSdkVersion="26"
@@ -29,124 +29,149 @@
 17    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 17-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:10:5-77
 17-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:10:22-74
-18
-19    <permission
-19-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
-20        android:name="com.mesh.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-20-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:23:9-81
-21        android:protectionLevel="signature" />
-21-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:24:9-44
+18    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+18-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:11:5-71
+18-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:11:22-68
+19    <uses-permission
+19-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:5-107
+20        android:name="android.permission.READ_EXTERNAL_STORAGE"
+20-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:22-77
+21        android:maxSdkVersion="32" />
+21-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:78-104
 22
-23    <uses-permission android:name="com.mesh.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-23-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
-23-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
-24
-25    <application
-25-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:5-32:19
-26        android:allowBackup="true"
-26-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:13:9-35
-27        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-27-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
-28        android:debuggable="true"
-29        android:extractNativeLibs="false"
-30        android:label="Mesh Network"
-30-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:9-37
-31        android:supportsRtl="true"
-31-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:15:9-35
-32        android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar" >
-32-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:16:9-79
-33        <activity
-33-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:18:9-25:20
-34            android:name="com.mesh.app.MainActivity"
-34-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:19:13-41
-35            android:exported="true" >
-35-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:20:13-36
-36            <intent-filter>
-36-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:21:13-24:29
-37                <action android:name="android.intent.action.MAIN" />
-37-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:22:17-69
-37-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:22:25-66
-38
-39                <category android:name="android.intent.category.LAUNCHER" />
-39-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:23:17-77
-39-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:23:27-74
-40            </intent-filter>
-41        </activity>
-42
-43        <service
-43-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:27:9-30:40
-44            android:name="com.mesh.app.MeshService"
-44-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:28:13-40
-45            android:exported="false"
-45-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:30:13-37
-46            android:foregroundServiceType="connectedDevice" />
-46-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:29:13-60
-47
-48        <provider
-48-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
-49            android:name="androidx.startup.InitializationProvider"
-49-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:25:13-67
-50            android:authorities="com.mesh.app.androidx-startup"
-50-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:26:13-68
-51            android:exported="false" >
-51-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:27:13-37
-52            <meta-data
-52-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
-53                android:name="androidx.emoji2.text.EmojiCompatInitializer"
-53-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:30:17-75
-54                android:value="androidx.startup" />
-54-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:31:17-49
-55            <meta-data
-55-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:29:13-31:52
-56                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
-56-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:30:17-78
-57                android:value="androidx.startup" />
-57-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:31:17-49
-58            <meta-data
-58-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:29:13-31:52
-59                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
-59-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:30:17-85
-60                android:value="androidx.startup" />
-60-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:31:17-49
-61        </provider>
-62
-63        <receiver
-63-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:34:9-52:20
-64            android:name="androidx.profileinstaller.ProfileInstallReceiver"
-64-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:35:13-76
-65            android:directBootAware="false"
-65-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:36:13-44
-66            android:enabled="true"
-66-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:37:13-35
-67            android:exported="true"
-67-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:38:13-36
-68            android:permission="android.permission.DUMP" >
-68-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:39:13-57
-69            <intent-filter>
-69-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:40:13-42:29
-70                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
-70-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:17-91
-70-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:25-88
-71            </intent-filter>
-72            <intent-filter>
-72-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:43:13-45:29
-73                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
-73-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:17-85
-73-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:25-82
-74            </intent-filter>
-75            <intent-filter>
-75-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:46:13-48:29
-76                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
-76-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:17-88
-76-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:25-85
-77            </intent-filter>
-78            <intent-filter>
-78-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:49:13-51:29
-79                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
-79-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:17-95
-79-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:25-92
-80            </intent-filter>
-81        </receiver>
-82    </application>
-83
-84</manifest>
+23    <permission
+23-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:22:5-24:47
+24        android:name="com.mesh.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+24-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:23:9-81
+25        android:protectionLevel="signature" />
+25-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:24:9-44
+26
+27    <uses-permission android:name="com.mesh.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+27-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:26:5-97
+27-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:26:22-94
+28
+29    <application
+29-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:5-44:19
+30        android:allowBackup="true"
+30-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:15:9-35
+31        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+31-->[androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
+32        android:debuggable="true"
+33        android:extractNativeLibs="false"
+34        android:label="Mesh Network"
+34-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:16:9-37
+35        android:supportsRtl="true"
+35-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:17:9-35
+36        android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar" >
+36-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:18:9-79
+37
+38        <!-- Launcher entry point: Onboarding → PIN → Main -->
+39        <activity
+39-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:21:9-28:20
+40            android:name="com.mesh.app.OnboardingActivity"
+40-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:22:13-47
+41            android:exported="true" >
+41-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:23:13-36
+42            <intent-filter>
+42-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:24:13-27:29
+43                <action android:name="android.intent.action.MAIN" />
+43-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:25:17-69
+43-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:25:25-66
+44
+45                <category android:name="android.intent.category.LAUNCHER" />
+45-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:26:17-77
+45-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:26:27-74
+46            </intent-filter>
+47        </activity>
+48        <activity
+48-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:30:9-32:40
+49            android:name="com.mesh.app.PinActivity"
+49-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:31:13-40
+50            android:exported="false" />
+50-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:32:13-37
+51        <activity
+51-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:34:9-37:46
+52            android:name="com.mesh.app.MainActivity"
+52-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:35:13-41
+53            android:exported="false"
+53-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:36:13-37
+54            android:launchMode="singleTop" />
+54-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:37:13-43
+55
+56        <service
+56-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:39:9-42:40
+57            android:name="com.mesh.app.MeshService"
+57-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:40:13-40
+58            android:exported="false"
+58-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:42:13-37
+59            android:foregroundServiceType="connectedDevice" />
+59-->D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:41:13-60
+60
+61        <provider
+61-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:24:9-32:20
+62            android:name="androidx.startup.InitializationProvider"
+62-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:25:13-67
+63            android:authorities="com.mesh.app.androidx-startup"
+63-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:26:13-68
+64            android:exported="false" >
+64-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:27:13-37
+65            <meta-data
+65-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:29:13-31:52
+66                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+66-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:30:17-75
+67                android:value="androidx.startup" />
+67-->[androidx.emoji2:emoji2:1.2.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5efcee49dbb6117eaf2064bd1e4a0261\transformed\emoji2-1.2.0\AndroidManifest.xml:31:17-49
+68            <meta-data
+68-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:29:13-31:52
+69                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+69-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:30:17-78
+70                android:value="androidx.startup" />
+70-->[androidx.lifecycle:lifecycle-process:2.7.0] C:\Users\Kiseu\.gradle\caches\transforms-3\2e2b505069dcb0cdaa850b00cbba8500\transformed\lifecycle-process-2.7.0\AndroidManifest.xml:31:17-49
+71            <meta-data
+71-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:29:13-31:52
+72                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+72-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:30:17-85
+73                android:value="androidx.startup" />
+73-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:31:17-49
+74        </provider>
+75
+76        <receiver
+76-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:34:9-52:20
+77            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+77-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:35:13-76
+78            android:directBootAware="false"
+78-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:36:13-44
+79            android:enabled="true"
+79-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:37:13-35
+80            android:exported="true"
+80-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:38:13-36
+81            android:permission="android.permission.DUMP" >
+81-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:39:13-57
+82            <intent-filter>
+82-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:40:13-42:29
+83                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+83-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:17-91
+83-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:41:25-88
+84            </intent-filter>
+85            <intent-filter>
+85-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:43:13-45:29
+86                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+86-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:17-85
+86-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:44:25-82
+87            </intent-filter>
+88            <intent-filter>
+88-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:46:13-48:29
+89                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+89-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:17-88
+89-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:47:25-85
+90            </intent-filter>
+91            <intent-filter>
+91-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:49:13-51:29
+92                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+92-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:17-95
+92-->[androidx.profileinstaller:profileinstaller:1.3.0] C:\Users\Kiseu\.gradle\caches\transforms-3\5e289cfd0bfd5b3b7bf28bbc48f7bbdf\transformed\profileinstaller-1.3.0\AndroidManifest.xml:50:25-92
+93            </intent-filter>
+94        </receiver>
+95    </application>
+96
+97</manifest>

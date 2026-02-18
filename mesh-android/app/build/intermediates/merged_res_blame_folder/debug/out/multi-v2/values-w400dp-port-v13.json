@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.mesh.app-mergeDebugResources-31:/values-w400dp-port-v13/values-w400dp-port-v13.xml",
+            "outputFile": "com.mesh.app-mergeDebugResources-35:/values-w400dp-port-v13/values-w400dp-port-v13.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Kiseu\\.gradle\\caches\\transforms-3\\c4f54cd85dc3b3a61cd7e49810f358ac\\transformed\\material-1.11.0\\res\\values-w400dp-port-v13\\values-w400dp-port-v13.xml",

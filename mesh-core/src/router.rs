@@ -1,10 +1,31 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use crate::message::{MeshMessage, MessageId};
+use crate::message::{MeshMessage, MessageId, MessageType};
 
 const SEEN_EXPIRY: Duration = Duration::from_secs(300); // 5 minutes
 const MAX_SEEN_CACHE: usize = 10_000;
+
+/// Mesh network statistics.
+#[derive(Debug, Clone, Default)]
+pub struct MeshStats {
+    pub total_peers: u32,
+    pub messages_relayed: u64,
+    pub messages_received: u64,
+    pub unique_nodes_seen: u32,
+    pub total_hops_observed: u64,
+    pub hop_count_samples: u64,
+}
+
+impl MeshStats {
+    pub fn avg_hops(&self) -> f32 {
+        if self.hop_count_samples == 0 {
+            0.0
+        } else {
+            self.total_hops_observed as f32 / self.hop_count_samples as f32
+        }
+    }
+}
 
 /// Flooding router with TTL-based hop limiting and message deduplication.
 pub struct Router {
@@ -12,14 +33,21 @@ pub struct Router {
     seen: HashSet<MessageId>,
     seen_times: Vec<(MessageId, Instant)>,
     our_node_id: [u8; 32],
+    /// Track all unique node IDs ever seen (including via relay).
+    pub all_nodes_seen: HashSet<[u8; 32]>,
+    pub stats: MeshStats,
 }
 
 impl Router {
     pub fn new(our_node_id: [u8; 32]) -> Self {
+        let mut all_nodes_seen = HashSet::new();
+        all_nodes_seen.insert(our_node_id);
         Self {
             seen: HashSet::new(),
             seen_times: Vec::new(),
             our_node_id,
+            all_nodes_seen,
+            stats: MeshStats::default(),
         }
     }
 
@@ -31,26 +59,72 @@ impl Router {
             return false;
         }
 
+        // SOS messages get priority - process even if dedup cache is full
+        let is_sos = msg.msg_type == MessageType::SOS;
+
         // Check TTL
         if msg.ttl == 0 {
             return false;
         }
 
-        // Check dedup
+        // Check dedup (SOS bypasses when cache is full)
         if self.seen.contains(&msg.msg_id) {
             return false;
         }
 
+        // If cache is full and not SOS, reject
+        if !is_sos && self.seen.len() >= MAX_SEEN_CACHE {
+            self.cleanup();
+            if self.seen.len() >= MAX_SEEN_CACHE {
+                return false;
+            }
+        }
+
         // Mark as seen
         self.mark_seen(msg.msg_id);
+
+        // Track this sender as a unique node
+        self.all_nodes_seen.insert(msg.sender_id);
+        self.stats.unique_nodes_seen = self.all_nodes_seen.len() as u32;
+
+        // Track hop count: original TTL minus current TTL
+        self.record_hops(msg);
+
+        // Count received messages
+        if self.is_for_us(msg) {
+            self.stats.messages_received += 1;
+        }
+
         true
+    }
+
+    /// Record hop information from a message's TTL.
+    fn record_hops(&mut self, msg: &MeshMessage) {
+        // Estimate original TTL based on message type
+        let original_ttl: u8 = match msg.msg_type {
+            MessageType::Text => 10,
+            MessageType::PublicBroadcast => 50,
+            MessageType::SOS => 255,
+            MessageType::ProfileUpdate => 3,
+            MessageType::Voice => 10,
+            MessageType::VoiceStream | MessageType::CallStart | MessageType::CallEnd => 2,
+            MessageType::FileOffer | MessageType::FileChunk | MessageType::FileAccept => 10,
+            _ => return, // Don't track hops for Discovery/Ping/Pong
+        };
+
+        let hops = original_ttl.saturating_sub(msg.ttl) as u64;
+        if hops > 0 {
+            self.stats.total_hops_observed += hops;
+            self.stats.hop_count_samples += 1;
+        }
     }
 
     /// Prepare a message for forwarding: decrement TTL, check if still valid.
     /// Returns a cloned message with decremented TTL, or None if TTL expired.
-    pub fn prepare_forward(&self, msg: &MeshMessage) -> Option<MeshMessage> {
+    pub fn prepare_forward(&mut self, msg: &MeshMessage) -> Option<MeshMessage> {
         let mut forwarded = msg.clone();
         if forwarded.decrement_ttl() {
+            self.stats.messages_relayed += 1;
             Some(forwarded)
         } else {
             None
@@ -104,7 +178,6 @@ impl Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::message::MessageType;
 
     fn make_msg(sender: [u8; 32], ttl: u8) -> MeshMessage {
         MeshMessage::new(MessageType::Text, sender, ttl, None, b"test".to_vec())
@@ -150,7 +223,7 @@ mod tests {
     #[test]
     fn test_forward_decrements_ttl() {
         let our_id = [1u8; 32];
-        let router = Router::new(our_id);
+        let mut router = Router::new(our_id);
 
         let msg = make_msg([2u8; 32], 3);
         let forwarded = router.prepare_forward(&msg).unwrap();
@@ -160,12 +233,11 @@ mod tests {
     #[test]
     fn test_forward_ttl_1_returns_none() {
         let our_id = [1u8; 32];
-        let router = Router::new(our_id);
+        let mut router = Router::new(our_id);
 
         let mut msg = make_msg([2u8; 32], 1);
         msg.ttl = 1;
         let forwarded = router.prepare_forward(&msg);
-        // TTL decrements to 0 which is still valid for forwarding (decrement_ttl returns true when going from 1 to 0)
         assert!(forwarded.is_some());
         assert_eq!(forwarded.unwrap().ttl, 0);
     }
@@ -175,7 +247,7 @@ mod tests {
         let our_id = [1u8; 32];
         let router = Router::new(our_id);
 
-        let msg = make_msg([2u8; 32], 5); // No destination = broadcast
+        let msg = make_msg([2u8; 32], 5);
         assert!(router.is_for_us(&msg));
     }
 
@@ -197,5 +269,30 @@ mod tests {
         let msg = MeshMessage::new(MessageType::Text, [2u8; 32], 5, Some([3u8; 32]), b"hello".to_vec());
         assert!(!router.is_for_us(&msg));
         assert!(router.should_forward(&msg));
+    }
+
+    #[test]
+    fn test_stats_tracking() {
+        let our_id = [1u8; 32];
+        let mut router = Router::new(our_id);
+
+        let msg1 = make_msg([2u8; 32], 5);
+        router.should_process(&msg1);
+
+        let msg2 = make_msg([3u8; 32], 5);
+        router.should_process(&msg2);
+
+        // Our node + 2 senders
+        assert_eq!(router.stats.unique_nodes_seen, 3);
+        assert_eq!(router.stats.messages_received, 2); // Both are broadcasts
+    }
+
+    #[test]
+    fn test_sos_priority() {
+        let our_id = [1u8; 32];
+        let mut router = Router::new(our_id);
+
+        let sos = MeshMessage::new(MessageType::SOS, [2u8; 32], 255, None, b"help".to_vec());
+        assert!(router.should_process(&sos));
     }
 }

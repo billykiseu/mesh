@@ -10,10 +10,18 @@ pub enum MessageType {
     Ping = 0x02,
     Pong = 0x03,
     Text = 0x10,
+    PublicBroadcast = 0x11,
+    SOS = 0x12,
     FileChunk = 0x20,
+    FileOffer = 0x21,
+    FileAccept = 0x22,
     Voice = 0x30,
+    VoiceStream = 0x31,
+    CallStart = 0x32,
+    CallEnd = 0x33,
     PeerExchange = 0x40,
     KeyExchange = 0x50,
+    ProfileUpdate = 0x60,
 }
 
 /// A unique message ID (32 bytes random).
@@ -66,6 +74,66 @@ impl MeshMessage {
         Self::new(MessageType::Text, sender_id, 10, Some(dest), text.as_bytes().to_vec())
     }
 
+    /// Create a public broadcast message (higher TTL for wider reach).
+    pub fn public_broadcast(sender_id: [u8; 32], text: &str) -> Self {
+        Self::new(MessageType::PublicBroadcast, sender_id, 50, None, text.as_bytes().to_vec())
+    }
+
+    /// Create an SOS emergency broadcast (max TTL).
+    pub fn sos(sender_id: [u8; 32], payload: &SOSPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("SOS serialization failed");
+        Self::new(MessageType::SOS, sender_id, 255, None, bytes)
+    }
+
+    /// Create a profile update broadcast.
+    pub fn profile_update(sender_id: [u8; 32], payload: &ProfilePayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("Profile serialization failed");
+        Self::new(MessageType::ProfileUpdate, sender_id, 3, None, bytes)
+    }
+
+    /// Create a file offer (direct to recipient).
+    pub fn file_offer(sender_id: [u8; 32], dest: [u8; 32], payload: &FileOfferPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("FileOffer serialization failed");
+        Self::new(MessageType::FileOffer, sender_id, 10, Some(dest), bytes)
+    }
+
+    /// Create a file chunk (direct to recipient).
+    pub fn file_chunk(sender_id: [u8; 32], dest: [u8; 32], payload: &FileChunkPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("FileChunk serialization failed");
+        Self::new(MessageType::FileChunk, sender_id, 10, Some(dest), bytes)
+    }
+
+    /// Create a file accept response (direct to sender).
+    pub fn file_accept(sender_id: [u8; 32], dest: [u8; 32], file_id: [u8; 16]) -> Self {
+        let payload = FileAcceptPayload { file_id };
+        let bytes = bincode::serialize(&payload).expect("FileAccept serialization failed");
+        Self::new(MessageType::FileAccept, sender_id, 10, Some(dest), bytes)
+    }
+
+    /// Create a voice note message.
+    pub fn voice_note(sender_id: [u8; 32], dest: Option<[u8; 32]>, payload: &VoiceNotePayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("Voice serialization failed");
+        Self::new(MessageType::Voice, sender_id, 10, dest, bytes)
+    }
+
+    /// Create a voice stream frame (direct, low TTL for LAN).
+    pub fn voice_stream(sender_id: [u8; 32], dest: [u8; 32], payload: &VoiceStreamPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("VoiceStream serialization failed");
+        Self::new(MessageType::VoiceStream, sender_id, 2, Some(dest), bytes)
+    }
+
+    /// Create a call start signal.
+    pub fn call_start(sender_id: [u8; 32], dest: [u8; 32], payload: &CallControlPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("CallStart serialization failed");
+        Self::new(MessageType::CallStart, sender_id, 2, Some(dest), bytes)
+    }
+
+    /// Create a call end signal.
+    pub fn call_end(sender_id: [u8; 32], dest: [u8; 32], payload: &CallControlPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("CallEnd serialization failed");
+        Self::new(MessageType::CallEnd, sender_id, 2, Some(dest), bytes)
+    }
+
     /// Serialize to bytes using bincode.
     pub fn to_bytes(&self) -> Vec<u8> {
         bincode::serialize(self).expect("Message serialization should not fail")
@@ -96,6 +164,74 @@ impl MeshMessage {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Payload structs
+// ---------------------------------------------------------------------------
+
+/// Profile update payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfilePayload {
+    pub display_name: String,
+    pub bio: String,
+    pub capabilities: Vec<String>,
+}
+
+/// File transfer offer payload (metadata).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileOfferPayload {
+    pub file_id: [u8; 16],
+    pub filename: String,
+    pub size_bytes: u64,
+    pub chunk_count: u32,
+    pub sha256_hash: [u8; 32],
+}
+
+/// File chunk data payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileChunkPayload {
+    pub file_id: [u8; 16],
+    pub sequence: u32,
+    pub data: Vec<u8>,
+}
+
+/// File accept response payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileAcceptPayload {
+    pub file_id: [u8; 16],
+}
+
+/// Voice note payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceNotePayload {
+    pub duration_ms: u32,
+    pub audio_data: Vec<u8>,
+}
+
+/// Voice stream frame payload (PTT).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceStreamPayload {
+    pub stream_id: [u8; 16],
+    pub sequence: u32,
+    pub audio_frame: Vec<u8>,
+}
+
+/// Call control payload (start/end).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallControlPayload {
+    pub stream_id: [u8; 16],
+}
+
+/// SOS emergency broadcast payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SOSPayload {
+    pub text: String,
+    pub location: Option<(f64, f64)>,
+}
+
+// ---------------------------------------------------------------------------
+// Discovery & exchange payloads
+// ---------------------------------------------------------------------------
+
 /// Discovery announcement payload.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveryPayload {
@@ -103,15 +239,17 @@ pub struct DiscoveryPayload {
     pub display_name: String,
     pub listen_port: u16,
     pub capabilities: Vec<String>,
+    pub has_internet: bool,
 }
 
 impl DiscoveryPayload {
-    pub fn new(node_id: [u8; 32], display_name: String, listen_port: u16) -> Self {
+    pub fn new(node_id: [u8; 32], display_name: String, listen_port: u16, has_internet: bool) -> Self {
         Self {
             node_id,
             display_name,
             listen_port,
-            capabilities: vec!["text".into()],
+            capabilities: vec!["text".into(), "voice".into(), "file".into()],
+            has_internet,
         }
     }
 
@@ -120,7 +258,7 @@ impl DiscoveryPayload {
         MeshMessage::new(
             MessageType::Discovery,
             self.node_id,
-            1, // Discovery messages don't need to hop far
+            1,
             None,
             payload,
         )
@@ -209,13 +347,12 @@ mod tests {
             assert_eq!(msg.ttl, i);
         }
 
-        // TTL is 0, should return false
         assert!(!msg.decrement_ttl());
     }
 
     #[test]
     fn test_discovery_payload() {
-        let payload = DiscoveryPayload::new([3u8; 32], "Node3".into(), 7332);
+        let payload = DiscoveryPayload::new([3u8; 32], "Node3".into(), 7332, false);
         let msg = payload.to_message();
 
         assert_eq!(msg.msg_type, MessageType::Discovery);
@@ -223,6 +360,7 @@ mod tests {
         assert_eq!(decoded.node_id, [3u8; 32]);
         assert_eq!(decoded.display_name, "Node3");
         assert_eq!(decoded.listen_port, 7332);
+        assert!(!decoded.has_internet);
     }
 
     #[test]
@@ -236,7 +374,75 @@ mod tests {
     fn test_compact_serialization() {
         let msg = MeshMessage::text([0u8; 32], "hi");
         let bytes = msg.to_bytes();
-        // Should be compact - well under 200 bytes for a short message
         assert!(bytes.len() < 200, "Serialized size {} is not compact", bytes.len());
+    }
+
+    #[test]
+    fn test_public_broadcast() {
+        let msg = MeshMessage::public_broadcast([1u8; 32], "emergency info");
+        assert_eq!(msg.msg_type, MessageType::PublicBroadcast);
+        assert_eq!(msg.ttl, 50);
+        assert!(msg.destination.is_none());
+    }
+
+    #[test]
+    fn test_sos_roundtrip() {
+        let sos = SOSPayload {
+            text: "Need help!".into(),
+            location: Some((37.7749, -122.4194)),
+        };
+        let msg = MeshMessage::sos([1u8; 32], &sos);
+        assert_eq!(msg.msg_type, MessageType::SOS);
+        assert_eq!(msg.ttl, 255);
+
+        let decoded: SOSPayload = bincode::deserialize(&msg.payload).unwrap();
+        assert_eq!(decoded.text, "Need help!");
+        assert_eq!(decoded.location, Some((37.7749, -122.4194)));
+    }
+
+    #[test]
+    fn test_profile_roundtrip() {
+        let profile = ProfilePayload {
+            display_name: "Alice".into(),
+            bio: "Hello world".into(),
+            capabilities: vec!["text".into(), "voice".into()],
+        };
+        let msg = MeshMessage::profile_update([1u8; 32], &profile);
+        assert_eq!(msg.msg_type, MessageType::ProfileUpdate);
+
+        let decoded: ProfilePayload = bincode::deserialize(&msg.payload).unwrap();
+        assert_eq!(decoded.display_name, "Alice");
+        assert_eq!(decoded.bio, "Hello world");
+    }
+
+    #[test]
+    fn test_file_offer_roundtrip() {
+        let offer = FileOfferPayload {
+            file_id: [42u8; 16],
+            filename: "test.txt".into(),
+            size_bytes: 1024,
+            chunk_count: 1,
+            sha256_hash: [0u8; 32],
+        };
+        let msg = MeshMessage::file_offer([1u8; 32], [2u8; 32], &offer);
+        assert_eq!(msg.msg_type, MessageType::FileOffer);
+
+        let decoded: FileOfferPayload = bincode::deserialize(&msg.payload).unwrap();
+        assert_eq!(decoded.filename, "test.txt");
+        assert_eq!(decoded.size_bytes, 1024);
+    }
+
+    #[test]
+    fn test_voice_note_roundtrip() {
+        let voice = VoiceNotePayload {
+            duration_ms: 5000,
+            audio_data: vec![1, 2, 3, 4, 5],
+        };
+        let msg = MeshMessage::voice_note([1u8; 32], Some([2u8; 32]), &voice);
+        assert_eq!(msg.msg_type, MessageType::Voice);
+
+        let decoded: VoiceNotePayload = bincode::deserialize(&msg.payload).unwrap();
+        assert_eq!(decoded.duration_ms, 5000);
+        assert_eq!(decoded.audio_data, vec![1, 2, 3, 4, 5]);
     }
 }

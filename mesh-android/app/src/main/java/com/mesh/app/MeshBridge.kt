@@ -10,55 +10,74 @@ object MeshBridge {
         System.loadLibrary("mesh_ffi")
     }
 
-    /**
-     * Initialize and start the mesh node.
-     * @param name Display name for this node
-     * @param listenPort TCP port to listen on
-     * @param dataDir Directory for storing identity keys
-     * @return 0 on success, -1 on error
-     */
+    // --- Core ---
     external fun meshInit(name: String, listenPort: Int, dataDir: String): Int
-
-    /**
-     * Send a broadcast text message to all peers.
-     * @param text Message content
-     * @return 0 on success, -1 on error
-     */
     external fun meshSendBroadcast(text: String): Int
-
-    /**
-     * Send a direct message to a specific node.
-     * @param destHex 64-character hex node ID
-     * @param text Message content
-     * @return 0 on success, -1 on error
-     */
     external fun meshSendDirect(destHex: String, text: String): Int
-
-    /**
-     * Get the local node ID as a hex string.
-     * @return Node ID hex string, or null if not initialized
-     */
     external fun meshGetNodeId(): String?
-
-    /**
-     * Get the short node ID (first 8 hex chars).
-     * @return Short node ID, or null if not initialized
-     */
     external fun meshGetNodeIdShort(): String?
+
+    // --- File Transfer ---
+    external fun meshSendFile(destHex: String, filePath: String): Int
+    external fun meshAcceptFile(fileIdHex: String): Int
+
+    // --- Voice ---
+    external fun meshSendVoice(destHex: String?, audioData: ByteArray, durationMs: Int): Int
+
+    // --- PTT / Calls ---
+    external fun meshStartCall(peerHex: String): Int
+    external fun meshEndCall(): Int
+    external fun meshSendAudioFrame(peerHex: String, data: ByteArray): Int
+
+    // --- Public Broadcast / SOS ---
+    external fun meshSendPublicBroadcast(text: String): Int
+    external fun meshSendSOS(text: String, lat: Double, lon: Double): Int
+
+    // --- Profile ---
+    external fun meshUpdateProfile(name: String, bio: String): Int
+
+    // --- Admin ---
+    external fun meshNuke(): Int
+    external fun meshStop(): Int
+    external fun meshGetStats(): Int
+    external fun meshGetPeersList(): Int
 
     /**
      * Event types from the native mesh engine.
+     * Event type codes:
+     *   0=none, 1=peer_connected, 2=peer_disconnected, 3=message_received, 4=started,
+     *   5=file_offered, 6=file_progress, 7=file_complete, 8=voice_received,
+     *   9=profile_updated, 10=gateway_found, 11=stats, 12=sos_received,
+     *   13=call_incoming, 14=audio_frame, 15=call_ended, 16=peer_list,
+     *   17=public_broadcast, 18=gateway_lost, 19=nuked, 20=stopped
      */
     data class MeshEvent(
-        val eventType: Int,  // 0=none, 1=peer_connected, 2=peer_disconnected, 3=message, 4=started
+        val eventType: Int,
         val nodeId: String?,
         val data: String?,
-        val senderName: String?
-    )
+        val senderName: String?,
+        val extra: String?,
+        val value: Long,
+        val float1: Double,
+        val float2: Double,
+        val binaryData: ByteArray?
+    ) {
+        val isFileOffered get() = eventType == 5
+        val isFileProgress get() = eventType == 6
+        val isFileComplete get() = eventType == 7
+        val isVoiceReceived get() = eventType == 8
+        val isSOSReceived get() = eventType == 12
+        val isPublicBroadcast get() = eventType == 17
+        val isCallIncoming get() = eventType == 13
+        val isCallEnded get() = eventType == 15
+        val fileIdHex get() = extra
+        val filename get() = data
+        val fileSize get() = value
+        val progressPct get() = value.toInt()
+        val durationMs get() = value.toInt()
+        val latitude get() = float1
+        val longitude get() = float2
+    }
 
-    /**
-     * Poll for the next event (non-blocking).
-     * @return Event or null if no events pending
-     */
     external fun meshPollEvent(): MeshEvent?
 }

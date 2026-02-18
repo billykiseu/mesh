@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.mesh.app-mergeDebugResources-31:/values-v21/values-v21.xml",
+            "outputFile": "com.mesh.app-mergeDebugResources-35:/values-v21/values-v21.xml",
             "map": [
                 {
                     "source": "C:\\Users\\Kiseu\\.gradle\\caches\\transforms-3\\aead6cabaa9ca9a79baee57c29a9f9a1\\transformed\\appcompat-1.6.1\\res\\values-v21\\values-v21.xml",
