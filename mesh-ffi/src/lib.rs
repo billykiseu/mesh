@@ -460,10 +460,21 @@ fn convert_event(event: NodeEvent) -> MeshEvent {
             ..MeshEvent::empty()
         },
         NodeEvent::Stats { stats } => {
+            let iface_entries: Vec<String> = stats.interfaces.iter().map(|i| {
+                format!(
+                    r#"{{"name":"{}","type":"{}","ip":"{}","active":{}}}"#,
+                    i.name.replace('"', r#"\""#),
+                    i.if_type.as_str(),
+                    i.ip,
+                    i.active,
+                )
+            }).collect();
             let json = format!(
-                r#"{{"total_peers":{},"messages_relayed":{},"messages_received":{},"unique_nodes_seen":{},"avg_hops":{:.2}}}"#,
+                r#"{{"total_peers":{},"messages_relayed":{},"messages_received":{},"unique_nodes_seen":{},"avg_hops":{:.2},"interfaces":[{}],"active_interface":"{}"}}"#,
                 stats.total_peers, stats.messages_relayed, stats.messages_received,
-                stats.unique_nodes_seen, stats.avg_hops
+                stats.unique_nodes_seen, stats.avg_hops,
+                iface_entries.join(","),
+                stats.active_interface.replace('"', r#"\""#),
             );
             MeshEvent {
                 event_type: 11,
@@ -815,10 +826,21 @@ mod jni_bindings {
             NodeEvent::GatewayFound { node_id, display_name } =>
                 (10, Some(hex::encode(node_id)), Some(display_name), None, None, 0, 0.0, 0.0, None),
             NodeEvent::Stats { stats } => {
+                let iface_entries: Vec<String> = stats.interfaces.iter().map(|i| {
+                    format!(
+                        r#"{{"name":"{}","type":"{}","ip":"{}","active":{}}}"#,
+                        i.name.replace('"', r#"\""#),
+                        i.if_type.as_str(),
+                        i.ip,
+                        i.active,
+                    )
+                }).collect();
                 let json = format!(
-                    r#"{{"total_peers":{},"messages_relayed":{},"messages_received":{},"unique_nodes_seen":{},"avg_hops":{:.2}}}"#,
+                    r#"{{"total_peers":{},"messages_relayed":{},"messages_received":{},"unique_nodes_seen":{},"avg_hops":{:.2},"interfaces":[{}],"active_interface":"{}"}}"#,
                     stats.total_peers, stats.messages_relayed, stats.messages_received,
-                    stats.unique_nodes_seen, stats.avg_hops
+                    stats.unique_nodes_seen, stats.avg_hops,
+                    iface_entries.join(","),
+                    stats.active_interface.replace('"', r#"\""#),
                 );
                 (11, None, Some(json), None, None, 0, 0.0, 0.0, None)
             },

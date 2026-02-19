@@ -33,6 +33,8 @@ pub struct MeshStats {
     pub messages_received: u64,
     pub unique_nodes_seen: u32,
     pub avg_hops: f32,
+    pub interfaces: Vec<gateway::NetworkInterface>,
+    pub active_interface: String,
 }
 
 /// A peer entry for the peer list query.
@@ -452,12 +454,15 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
                         }
                         NodeCommand::GetStats => {
                             let rs = &router.stats;
+                            let (ifaces, active_iface) = gateway::detect_interfaces();
                             let stats = MeshStats {
                                 total_peers: peers.count() as u32,
                                 messages_relayed: rs.messages_relayed,
                                 messages_received: rs.messages_received,
                                 unique_nodes_seen: rs.unique_nodes_seen,
                                 avg_hops: rs.avg_hops(),
+                                interfaces: ifaces,
+                                active_interface: active_iface,
                             };
                             let _ = event_tx.send(NodeEvent::Stats { stats }).await;
                         }

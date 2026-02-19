@@ -11,3 +11,4 @@ pub mod gateway;
 
 pub use identity::NodeIdentity;
 pub use node::{NodeConfig, NodeCommand, NodeEvent, NodeHandle, MeshStats, PeerListEntry, start_mesh_node};
+pub use gateway::{NetworkInterface, InterfaceType};

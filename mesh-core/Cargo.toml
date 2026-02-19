@@ -16,3 +16,4 @@ anyhow = { workspace = true }
 sha2 = "0.10"
 hex = "0.4"
 socket2 = { version = "0.5", features = ["all"] }
+if-addrs = "0.13"

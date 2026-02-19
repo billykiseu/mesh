@@ -22,7 +22,14 @@
       "Bash(gradle --version:*)",
       "Bash(gradle wrapper:*)",
       "Bash(export:*)",
-      "Bash(./gradlew assembleDebug:*)"
+      "Bash(./gradlew assembleDebug:*)",
+      "WebSearch",
+      "Bash(rustup target list:*)",
+      "Bash(./gradlew assembleRelease:*)",
+      "Bash(\"$BUILD_TOOLS/zipalign\" -v -p 4 /d/Mainframe/Lab/Mesh/mesh-android/app/build/outputs/apk/release/app-release-unsigned.apk /d/Mainframe/Lab/Mesh/mesh-android/app/build/outputs/apk/release/app-release-aligned.apk)",
+      "Bash(\"$BUILD_TOOLS/apksigner\" sign --ks \"$USERPROFILE/.android/debug.keystore\" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android /d/Mainframe/Lab/Mesh/mesh-android/app/build/outputs/apk/release/app-release-aligned.apk)",
+      "Bash(\"$ANDROID_HOME/build-tools/35.0.0/apksigner.bat\" sign --ks \"$USERPROFILE/.android/debug.keystore\" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android /d/Mainframe/Lab/Mesh/mesh-android/app/build/outputs/apk/release/app-release-aligned.apk)",
+      "Bash(\"$ANDROID_HOME/build-tools/35.0.0/apksigner.bat\" verify /d/Mainframe/Lab/Mesh/mesh-android/app/build/outputs/apk/release/app-release-aligned.apk)"
     ]
   }
 }
