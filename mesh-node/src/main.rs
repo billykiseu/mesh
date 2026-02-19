@@ -765,23 +765,37 @@ impl MeshApp {
             }
         };
 
+        // Use device's preferred config instead of forcing 16kHz mono
+        let supported_config = match device.default_output_config() {
+            Ok(c) => c,
+            Err(e) => {
+                self.push_system(format!("No supported audio config: {}", e));
+                return;
+            }
+        };
+        let device_rate = supported_config.sample_rate().0;
+        let device_channels = supported_config.channels() as usize;
+
         let config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: cpal::SampleRate(16000),
+            channels: device_channels as u16,
+            sample_rate: cpal::SampleRate(device_rate),
             buffer_size: cpal::BufferSize::Default,
         };
 
-        // Convert bytes to samples
-        let samples: Vec<i16> = audio_data.chunks_exact(2)
+        // Convert bytes to 16kHz mono i16 samples
+        let mono_16k: Vec<i16> = audio_data.chunks_exact(2)
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
             .collect();
 
-        let samples = Arc::new(StdMutex::new((samples, 0usize))); // (data, position)
+        // Resample from 16kHz to device rate and expand to device channels
+        let resampled = resample_audio(&mono_16k, 16000, device_rate, device_channels);
+
+        let samples = Arc::new(StdMutex::new((resampled, 0usize)));
         let samples_clone = samples.clone();
 
         let stream = match device.build_output_stream(
             &config,
-            move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 if let Ok(mut s) = samples_clone.lock() {
                     let (ref buf, ref mut pos) = *s;
                     for sample in data.iter_mut() {
@@ -789,7 +803,7 @@ impl MeshApp {
                             *sample = buf[*pos];
                             *pos += 1;
                         } else {
-                            *sample = 0;
+                            *sample = 0.0;
                         }
                     }
                 }
@@ -827,64 +841,122 @@ impl MeshApp {
 
         let host = cpal::default_host();
 
-        let config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: cpal::SampleRate(16000),
-            buffer_size: cpal::BufferSize::Default,
-        };
-
-        // Input stream: capture 20ms frames (320 samples) and send
+        // Input: use device preferred config, downsample to 16kHz mono for network
         let handle = self.handle.clone();
         let rt = self.rt.clone();
-        let frame_buffer = Arc::new(StdMutex::new(Vec::<i16>::with_capacity(320)));
-        let frame_buffer_clone = frame_buffer.clone();
 
         let input_stream = if let Some(input_device) = host.default_input_device() {
-            match input_device.build_input_stream(
-                &config,
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    if let Ok(mut fb) = frame_buffer_clone.lock() {
-                        fb.extend_from_slice(data);
-                        while fb.len() >= 320 {
-                            let frame: Vec<i16> = fb.drain(..320).collect();
-                            let frame_bytes: Vec<u8> = frame.iter()
-                                .flat_map(|s| s.to_le_bytes())
-                                .collect();
-                            let h = handle.clone();
-                            let pid = peer_id;
-                            rt.spawn(async move {
-                                let _ = h.send_audio_frame(pid, frame_bytes).await;
-                            });
+            let in_cfg = input_device.default_input_config().ok();
+            if let Some(supported) = in_cfg {
+                let in_rate = supported.sample_rate().0;
+                let in_channels = supported.channels() as usize;
+                let config = cpal::StreamConfig {
+                    channels: in_channels as u16,
+                    sample_rate: cpal::SampleRate(in_rate),
+                    buffer_size: cpal::BufferSize::Default,
+                };
+                // 20ms frame at 16kHz = 320 samples; at device rate = in_rate/50
+                let frame_size_16k = 320usize;
+                let downsample_buf = Arc::new(StdMutex::new(Vec::<f32>::new()));
+                let downsample_buf_clone = downsample_buf.clone();
+
+                match input_device.build_input_stream(
+                    &config,
+                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        if let Ok(mut fb) = downsample_buf_clone.lock() {
+                            // Mix to mono
+                            for chunk in data.chunks(in_channels) {
+                                let mono: f32 = chunk.iter().sum::<f32>() / in_channels as f32;
+                                fb.push(mono);
+                            }
+                            // Downsample to 16kHz in frame_size_16k chunks
+                            let samples_per_frame = (in_rate as usize) / 50; // 20ms
+                            while fb.len() >= samples_per_frame {
+                                let device_frame: Vec<f32> = fb.drain(..samples_per_frame).collect();
+                                let ratio = 16000.0 / in_rate as f64;
+                                let mut frame_16k = Vec::with_capacity(frame_size_16k);
+                                for i in 0..frame_size_16k {
+                                    let src_idx = (i as f64 / ratio).min((device_frame.len() - 1) as f64);
+                                    let idx = src_idx as usize;
+                                    let frac = src_idx - idx as f64;
+                                    let s0 = device_frame[idx];
+                                    let s1 = device_frame[(idx + 1).min(device_frame.len() - 1)];
+                                    let sample = s0 + (s1 - s0) * frac as f32;
+                                    frame_16k.push(sample);
+                                }
+                                let frame_bytes: Vec<u8> = frame_16k.iter()
+                                    .map(|s| (s.clamp(-1.0, 1.0) * 32767.0) as i16)
+                                    .flat_map(|s| s.to_le_bytes())
+                                    .collect();
+                                let h = handle.clone();
+                                let pid = peer_id;
+                                rt.spawn(async move {
+                                    let _ = h.send_audio_frame(pid, frame_bytes).await;
+                                });
+                            }
                         }
-                    }
-                },
-                |err| { tracing::error!("Call input error: {}", err); },
-                None,
-            ) {
-                Ok(s) => { let _ = s.play(); Some(s) }
-                Err(_) => None,
+                    },
+                    |err| { tracing::error!("Call input error: {}", err); },
+                    None,
+                ) {
+                    Ok(s) => { let _ = s.play(); Some(s) }
+                    Err(_) => None,
+                }
+            } else {
+                None
             }
         } else {
             None
         };
 
-        // Output stream: plays from call_playback_buffer
+        // Output: use device preferred config, upsample from 16kHz mono
         let playback_buf = self.call_playback_buffer.clone();
         let output_stream = if let Some(output_device) = host.default_output_device() {
-            match output_device.build_output_stream(
-                &config,
-                move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
-                    if let Ok(mut buf) = playback_buf.lock() {
-                        for sample in data.iter_mut() {
-                            *sample = buf.pop_front().unwrap_or(0);
+            let out_cfg = output_device.default_output_config().ok();
+            if let Some(supported) = out_cfg {
+                let out_rate = supported.sample_rate().0;
+                let out_channels = supported.channels() as usize;
+                let config = cpal::StreamConfig {
+                    channels: out_channels as u16,
+                    sample_rate: cpal::SampleRate(out_rate),
+                    buffer_size: cpal::BufferSize::Default,
+                };
+                let resample_state = Arc::new(StdMutex::new(0.0f64)); // fractional position
+
+                match output_device.build_output_stream(
+                    &config,
+                    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                        if let Ok(mut buf) = playback_buf.lock() {
+                            let ratio = 16000.0 / out_rate as f64;
+                            if let Ok(mut frac_pos) = resample_state.lock() {
+                                for frame in data.chunks_mut(out_channels) {
+                                    let sample = if !buf.is_empty() {
+                                        let idx = (*frac_pos as usize).min(buf.len().saturating_sub(1));
+                                        let s = buf[idx] as f32 / 32768.0;
+                                        *frac_pos += ratio;
+                                        while *frac_pos >= 1.0 && !buf.is_empty() {
+                                            buf.pop_front();
+                                            *frac_pos -= 1.0;
+                                        }
+                                        s
+                                    } else {
+                                        0.0
+                                    };
+                                    for ch in frame.iter_mut() {
+                                        *ch = sample;
+                                    }
+                                }
+                            }
                         }
-                    }
-                },
-                |err| { tracing::error!("Call output error: {}", err); },
-                None,
-            ) {
-                Ok(s) => { let _ = s.play(); Some(s) }
-                Err(_) => None,
+                    },
+                    |err| { tracing::error!("Call output error: {}", err); },
+                    None,
+                ) {
+                    Ok(s) => { let _ = s.play(); Some(s) }
+                    Err(_) => None,
+                }
+            } else {
+                None
             }
         } else {
             None
@@ -2055,6 +2127,33 @@ fn whoami() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Audio resampling
+// ---------------------------------------------------------------------------
+
+/// Resample 16kHz mono i16 audio to the device's native rate and channel count.
+/// Returns f32 samples interleaved for the target channel count.
+fn resample_audio(mono_16k: &[i16], src_rate: u32, dst_rate: u32, dst_channels: usize) -> Vec<f32> {
+    let ratio = src_rate as f64 / dst_rate as f64;
+    let out_len = ((mono_16k.len() as f64) / ratio).ceil() as usize;
+    let mut result = Vec::with_capacity(out_len * dst_channels);
+
+    for i in 0..out_len {
+        let src_pos = i as f64 * ratio;
+        let idx = src_pos as usize;
+        let frac = src_pos - idx as f64;
+
+        let s0 = mono_16k.get(idx).copied().unwrap_or(0) as f32 / 32768.0;
+        let s1 = mono_16k.get(idx + 1).copied().unwrap_or(mono_16k.get(idx).copied().unwrap_or(0)) as f32 / 32768.0;
+        let sample = s0 + (s1 - s0) * frac as f32;
+
+        // Duplicate to all channels
+        for _ in 0..dst_channels {
+            result.push(sample);
+        }
+    }
+    result
+}
+
 // Main
 // ---------------------------------------------------------------------------
 

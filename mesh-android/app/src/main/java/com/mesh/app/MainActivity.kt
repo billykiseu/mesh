@@ -3,6 +3,8 @@ package com.mesh.app
 import android.Manifest
 import android.content.*
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioRecord
@@ -76,6 +78,9 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
     private lateinit var chatSendBtn: Button
     private lateinit var chatAttachBtn: Button
     private lateinit var chatMicBtn: Button
+    private lateinit var chatCallBtn: Button
+    private lateinit var callBannerLayout: LinearLayout
+    private lateinit var callBannerText: TextView
 
     // Peers tab views
     private lateinit var peersListView: ListView
@@ -83,6 +88,7 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
     // Radar tab views
     private lateinit var radarText: TextView
     private lateinit var radarPeerCount: TextView
+    private lateinit var radarActionBtn: Button
 
     // Settings tab views
     private lateinit var settingsLayout: LinearLayout
@@ -157,6 +163,7 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
                     4 -> { // Started
                         nodeIdShort = nodeId?.take(8)
                         updateHeader()
+                        updateRadar()
                     }
                     1 -> { // Peer connected
                         peerCount++
@@ -223,8 +230,14 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
                     }
                     13 -> { // Incoming call
                         val peerName = data ?: "Unknown"
-                        addChat("[Call] Incoming from $peerName")
-                        showIncomingCallDialog(nodeId ?: "", peerName)
+                        // If we already initiated a call to this peer, this is just
+                        // the other side's CallStart response — ignore it
+                        if (inCall != null) {
+                            // Already in a call, skip
+                        } else {
+                            addChat("[Call] Incoming from $peerName")
+                            showIncomingCallDialog(nodeId ?: "", peerName)
+                        }
                     }
                     14 -> { // Audio frame
                         val binaryData = intent.getByteArrayExtra("binary_data")
@@ -246,7 +259,11 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
                         updateHeader()
                     }
                     20 -> { // Stopped
+                        peerCount = 0
+                        peerEntries.clear()
+                        updatePeerList()
                         updateHeader()
+                        updateRadar()
                     }
                     21 -> { // MessageDelivered
                         // Could update message status indicators
@@ -367,7 +384,16 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
             orientation = LinearLayout.HORIZONTAL
             setPadding(16, 12, 16, 12)
             setBackgroundColor(0xFF1A1A2E.toInt())
+            gravity = Gravity.CENTER_VERTICAL
         }
+
+        // Header logo
+        val headerLogo = ImageView(this).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            layoutParams = LinearLayout.LayoutParams(64, 64).apply { marginEnd = 8 }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        header.addView(headerLogo)
 
         headerStatus = TextView(this).apply {
             text = "MassKritical"
@@ -484,19 +510,34 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         }
         chatView.addView(chatListView)
 
-        // Call banner (hidden by default)
-        val callBanner = LinearLayout(this).apply {
+        // Call banner (hidden by default, shown during active call)
+        callBannerLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             visibility = View.GONE
             setBackgroundColor(0xFF2D1B4E.toInt())
-            setPadding(12, 8, 12, 8)
-            tag = "call_banner"
+            setPadding(12, 10, 12, 10)
+            gravity = Gravity.CENTER_VERTICAL
         }
-        chatView.addView(callBanner)
+        callBannerText = TextView(this).apply {
+            text = ""
+            textSize = 14f
+            setTextColor(0xFFE0E0E0.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        callBannerLayout.addView(callBannerText)
+        val endCallBtn = Button(this).apply {
+            text = "End Call"
+            setBackgroundColor(0xFFD32F2F.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener { endCall() }
+        }
+        callBannerLayout.addView(endCallBtn)
+        chatView.addView(callBannerLayout)
 
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 8, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
         }
 
         // Mic button for voice notes
@@ -515,6 +556,28 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
             )
         }
         inputRow.addView(chatMicBtn)
+
+        // Call button — calls the current DM target
+        chatCallBtn = Button(this).apply {
+            text = "Call"
+            setOnClickListener {
+                val target = dmTarget
+                if (target != null) {
+                    startCall(target)
+                } else if (peerEntries.size == 1) {
+                    startCall(peerEntries.first())
+                } else if (peerEntries.isNotEmpty()) {
+                    showCallPeerPicker()
+                } else {
+                    Toast.makeText(this@MainActivity, "No peers to call", Toast.LENGTH_SHORT).show()
+                }
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        inputRow.addView(chatCallBtn)
 
         chatAttachBtn = Button(this).apply {
             text = "+"
@@ -539,6 +602,28 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         inputRow.addView(chatSendBtn)
 
         chatView.addView(inputRow)
+    }
+
+    private fun showCallPeerPicker() {
+        val names = peerEntries.map { it.displayName }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Call who?")
+            .setItems(names) { _, which ->
+                if (which < peerEntries.size) {
+                    startCall(peerEntries[which])
+                }
+            }
+            .show()
+    }
+
+    private fun updateCallBanner() {
+        val peer = inCall
+        if (peer != null && callActive) {
+            callBannerText.text = "In call with ${peer.displayName}"
+            callBannerLayout.visibility = View.VISIBLE
+        } else {
+            callBannerLayout.visibility = View.GONE
+        }
     }
 
     // --- Peers Tab ---
@@ -584,6 +669,14 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
             setPadding(32, 32, 32, 32)
         }
 
+        // Logo on radar page
+        val radarLogo = ImageView(this).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            layoutParams = LinearLayout.LayoutParams(128, 128).apply { bottomMargin = 16 }
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        radarView.addView(radarLogo)
+
         radarPeerCount = TextView(this).apply {
             text = "0"
             textSize = 72f
@@ -601,19 +694,19 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         radarView.addView(label)
 
         radarText = TextView(this).apply {
-            text = "Scanning for mesh nodes..."
+            text = "Tap below to start the mesh node"
             textSize = 14f
             gravity = Gravity.CENTER
             setLineSpacing(4f, 1.3f)
         }
         radarView.addView(radarText)
 
-        val startBtn = Button(this).apply {
+        radarActionBtn = Button(this).apply {
             text = "Start Mesh Node"
-            setOnClickListener { startMeshService() }
+            setOnClickListener { toggleMeshService() }
             setPadding(32, 16, 32, 16)
         }
-        radarView.addView(startBtn)
+        radarView.addView(radarActionBtn)
     }
 
     // --- Emergency Tab ---
@@ -1001,13 +1094,40 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
 
         addSettingsSection("Groups")
 
+        val groupBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 4, 0, 8)
+        }
+        val joinGroupBtn = Button(this).apply {
+            text = "Join Group"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { showJoinGroupDialog() }
+        }
+        groupBtnRow.addView(joinGroupBtn)
+        val leaveGroupBtn = Button(this).apply {
+            text = "Leave Group"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { showLeaveGroupDialog() }
+        }
+        groupBtnRow.addView(leaveGroupBtn)
+        settingsLayout.addView(groupBtnRow)
+
         val groupInfo = TextView(this).apply {
-            text = "Use /group join <name> in chat to join groups"
+            text = if (joinedGroups.isEmpty()) "No groups joined" else "Groups: ${joinedGroups.joinToString(", ") { "#$it" }}"
             textSize = 12f
-            setPadding(0, 4, 0, 16)
+            setPadding(0, 0, 0, 8)
             tag = "groups_info"
         }
         settingsLayout.addView(groupInfo)
+
+        val activeGroupInfo = TextView(this).apply {
+            text = if (activeGroup != null) "Active: #$activeGroup (messages go here)" else "No active group (messages go to main chat)"
+            textSize = 12f
+            setPadding(0, 0, 0, 16)
+            tag = "active_group_info"
+            setTextColor(0xFF00D4FF.toInt())
+        }
+        settingsLayout.addView(activeGroupInfo)
 
         addSettingsSection("About")
 
@@ -1089,6 +1209,26 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         }
         ContextCompat.startForegroundService(this, intent)
         headerStatus.text = "Starting..."
+    }
+
+    private fun stopMeshService() {
+        val intent = Intent(this, MeshService::class.java).apply {
+            action = MeshService.ACTION_STOP
+        }
+        startService(intent)
+        peerCount = 0
+        peerEntries.clear()
+        updatePeerList()
+        updateHeader()
+        updateRadar()
+    }
+
+    private fun toggleMeshService() {
+        if (meshService?.isNodeRunning() == true) {
+            stopMeshService()
+        } else {
+            startMeshService()
+        }
     }
 
     private fun sendMessage() {
@@ -1233,17 +1373,26 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
 
     private fun updateRadar() {
         radarPeerCount.text = "$peerCount"
-        val status = if (meshService?.isNodeRunning() == true) {
+        val running = meshService?.isNodeRunning() == true
+        if (running) {
+            radarActionBtn.text = "Stop Mesh Node"
+            radarActionBtn.setBackgroundColor(0xFFD32F2F.toInt())
+            radarActionBtn.setTextColor(0xFFFFFFFF.toInt())
             val lines = peerEntries.joinToString("\n") { p ->
                 val gw = if (p.isGateway) " [Gateway]" else ""
                 "  ${p.displayName}$gw"
             }
-            if (lines.isEmpty()) "No peers found yet.\nMake sure another node is running nearby."
-            else "Connected nodes:\n$lines"
+            radarText.text = if (lines.isEmpty()) {
+                "Node running. Scanning for peers...\nMake sure another node is running nearby."
+            } else {
+                "Connected nodes:\n$lines"
+            }
         } else {
-            "Tap 'Start Mesh Node' to begin"
+            radarActionBtn.text = "Start Mesh Node"
+            radarActionBtn.setBackgroundColor(0xFF4CAF50.toInt())
+            radarActionBtn.setTextColor(0xFFFFFFFF.toInt())
+            radarText.text = "Tap below to start the mesh node"
         }
-        radarText.text = status
     }
 
     private fun showPeerActions(peer: PeerInfo) {
@@ -1473,6 +1622,7 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         inCall = peer
         callActive = true
         addChat("[Call] Calling ${peer.displayName}...")
+        updateCallBanner()
         startCallAudio(peer)
     }
 
@@ -1486,9 +1636,11 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
                 inCall = peer
                 callActive = true
                 addChat("[Call] Accepted call from $peerName")
+                updateCallBanner()
                 startCallAudio(peer)
             }
             .setNegativeButton("Decline") { _, _ ->
+                MeshBridge.meshEndCall()
                 addChat("[Call] Declined call from $peerName")
             }
             .setCancelable(false)
@@ -1498,6 +1650,7 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
     private fun startCallAudio(peer: PeerInfo) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
+            addChat("[!] Microphone permission needed for call")
             return
         }
 
@@ -1509,9 +1662,16 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
             sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
 
-        // Set audio mode for voice communication
+        // Validate buffer sizes
+        if (inputBufSize <= 0 || outputBufSize <= 0) {
+            addChat("[!] Audio not supported on this device")
+            return
+        }
+
+        // Set audio mode and enable speakerphone
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        audioManager.isSpeakerphoneOn = true
 
         // Capture thread: send 20ms frames (640 bytes = 320 samples)
         try {
@@ -1520,9 +1680,19 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
                 sampleRate,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                inputBufSize
+                maxOf(inputBufSize, 640)
             )
-        } catch (e: SecurityException) {
+        } catch (e: Exception) {
+            addChat("[!] Cannot access microphone: ${e.message}")
+            audioManager.mode = AudioManager.MODE_NORMAL
+            return
+        }
+
+        if (callAudioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            addChat("[!] Failed to initialize audio recording")
+            callAudioRecord?.release()
+            callAudioRecord = null
+            audioManager.mode = AudioManager.MODE_NORMAL
             return
         }
 
@@ -1530,38 +1700,62 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         callRecordThread = Thread {
             val frameBuf = ByteArray(640) // 20ms at 16kHz 16-bit mono
             while (callActive) {
-                val read = callAudioRecord?.read(frameBuf, 0, frameBuf.size) ?: break
-                if (read > 0) {
-                    val frame = frameBuf.copyOf(read)
-                    MeshBridge.meshSendAudioFrame(peer.nodeId, frame)
-                }
+                try {
+                    val read = callAudioRecord?.read(frameBuf, 0, frameBuf.size) ?: break
+                    if (read > 0) {
+                        val frame = frameBuf.copyOf(read)
+                        MeshBridge.meshSendAudioFrame(peer.nodeId, frame)
+                    }
+                } catch (_: Exception) { break }
             }
         }
         callRecordThread?.start()
 
-        // Playback thread: read from callPlaybackBuffer
-        callAudioTrack = AudioTrack(
-            AudioManager.STREAM_VOICE_CALL,
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            outputBufSize,
-            AudioTrack.MODE_STREAM
-        )
+        // Playback: use AudioTrack.Builder with AudioAttributes for speaker output
+        try {
+            val audioAttrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val audioFormat = AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .build()
+            callAudioTrack = AudioTrack.Builder()
+                .setAudioAttributes(audioAttrs)
+                .setAudioFormat(audioFormat)
+                .setBufferSizeInBytes(maxOf(outputBufSize, 640))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (e: Exception) {
+            addChat("[!] Failed to create audio output: ${e.message}")
+            callActive = false
+            callAudioRecord?.stop()
+            callAudioRecord?.release()
+            callAudioRecord = null
+            audioManager.mode = AudioManager.MODE_NORMAL
+            return
+        }
+
         callAudioTrack?.play()
 
         callPlayThread = Thread {
             val silence = ByteArray(640) // 20ms silence
             while (callActive) {
-                val frame = callPlaybackBuffer.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS)
-                if (frame != null) {
-                    callAudioTrack?.write(frame, 0, frame.size)
-                } else {
-                    callAudioTrack?.write(silence, 0, silence.size)
-                }
+                try {
+                    val frame = callPlaybackBuffer.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    if (frame != null) {
+                        callAudioTrack?.write(frame, 0, frame.size)
+                    } else {
+                        callAudioTrack?.write(silence, 0, silence.size)
+                    }
+                } catch (_: Exception) { break }
             }
         }
         callPlayThread?.start()
+
+        updateCallBanner()
     }
 
     private fun endCall() {
@@ -1570,25 +1764,27 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
         callActive = false
         MeshBridge.meshEndCall()
 
-        callAudioRecord?.stop()
-        callAudioRecord?.release()
+        try { callAudioRecord?.stop() } catch (_: Exception) {}
+        try { callAudioRecord?.release() } catch (_: Exception) {}
         callAudioRecord = null
         callRecordThread = null
 
-        callAudioTrack?.stop()
-        callAudioTrack?.release()
+        try { callAudioTrack?.stop() } catch (_: Exception) {}
+        try { callAudioTrack?.release() } catch (_: Exception) {}
         callAudioTrack = null
         callPlayThread = null
 
         callPlaybackBuffer.clear()
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager.isSpeakerphoneOn = false
         audioManager.mode = AudioManager.MODE_NORMAL
 
         val peerName = inCall?.displayName ?: "?"
         inCall = null
         runOnUiThread {
             addChat("[Call] Ended with $peerName")
+            updateCallBanner()
         }
     }
 
@@ -1691,6 +1887,62 @@ class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirec
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             else -> "${bytes / (1024 * 1024)} MB"
         }
+    }
+
+    // --- Group Chat ---
+
+    private fun showJoinGroupDialog() {
+        val input = EditText(this).apply {
+            hint = "Group name"
+            setPadding(32, 16, 32, 16)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Join Group")
+            .setView(input)
+            .setPositiveButton("Join") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotEmpty()) {
+                    MeshBridge.meshJoinGroup(name)
+                    if (!joinedGroups.contains(name)) joinedGroups.add(name)
+                    activeGroup = name
+                    chatInput.hint = "Message to #$name..."
+                    addChat("[*] Joined group #$name")
+                    updateGroupDisplay()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showLeaveGroupDialog() {
+        if (joinedGroups.isEmpty()) {
+            Toast.makeText(this, "Not in any groups", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val names = joinedGroups.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Leave Group")
+            .setItems(names) { _, which ->
+                val name = names[which]
+                MeshBridge.meshLeaveGroup(name)
+                joinedGroups.remove(name)
+                if (activeGroup == name) {
+                    activeGroup = if (joinedGroups.isNotEmpty()) joinedGroups.last() else null
+                    chatInput.hint = if (activeGroup != null) "Message to #$activeGroup..." else "Type a message..."
+                }
+                addChat("[*] Left group #$name")
+                updateGroupDisplay()
+            }
+            .show()
+    }
+
+    private fun updateGroupDisplay() {
+        settingsLayout.findViewWithTag<TextView>("groups_info")?.text =
+            if (joinedGroups.isEmpty()) "No groups joined"
+            else "Groups: ${joinedGroups.joinToString(", ") { "#$it" }}"
+        settingsLayout.findViewWithTag<TextView>("active_group_info")?.text =
+            if (activeGroup != null) "Active: #$activeGroup (messages go here)"
+            else "No active group (messages go to main chat)"
     }
 
     // --- Bluetooth Transport ---
