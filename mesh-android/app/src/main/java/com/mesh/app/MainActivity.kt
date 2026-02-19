@@ -9,6 +9,8 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.net.Uri
+import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -27,11 +29,19 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import org.json.JSONArray
 import org.json.JSONObject
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), BluetoothTransport.Listener, WifiDirectManager.Listener {
 
     // --- Service binding ---
     private var meshService: MeshService? = null
     private var serviceBound = false
+
+    // --- Bluetooth transport ---
+    private var bluetoothTransport: BluetoothTransport? = null
+    private var btPeerCount = 0
+
+    // --- WiFi Direct ---
+    private var wifiDirectManager: WifiDirectManager? = null
+    private var wifiDirectStatus = ""
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -57,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabRadar: TextView
     private lateinit var tabChat: TextView
     private lateinit var tabPeers: TextView
+    private lateinit var tabEmergency: TextView
     private lateinit var tabSettings: TextView
 
     // Chat tab views
@@ -106,6 +117,22 @@ class MainActivity : AppCompatActivity() {
 
     // Received voice notes for playback
     private val voiceNotes = mutableListOf<VoiceNote>()
+
+    // Group chat state
+    private val joinedGroups = mutableListOf<String>()
+    private var activeGroup: String? = null
+    private val groupMessages = mutableMapOf<String, MutableList<String>>()
+
+    // Typing indicator state
+    private val typingPeers = mutableMapOf<String, Long>() // nodeId -> timestamp
+
+    // Emergency state
+    private val triageLog = mutableListOf<String>()
+    private val resourceLog = mutableListOf<String>()
+    private val safetyRoster = mutableMapOf<String, String>() // nodeId -> "name: status"
+
+    // Disappearing messages
+    private val disappearingMsgs = mutableListOf<Triple<String, String, Long>>() // msg, text, expiry_time
 
     data class PeerInfo(val nodeId: String, val displayName: String, var isGateway: Boolean = false, var bio: String = "")
     data class VoiceNote(val sender: String, val audioData: ByteArray, val durationMs: Long)
@@ -221,6 +248,57 @@ class MainActivity : AppCompatActivity() {
                     20 -> { // Stopped
                         updateHeader()
                     }
+                    21 -> { // MessageDelivered
+                        // Could update message status indicators
+                    }
+                    22 -> { // TypingStarted
+                        val name = senderName ?: nodeId?.take(8) ?: "?"
+                        typingPeers[nodeId ?: ""] = System.currentTimeMillis()
+                        updateTypingIndicator()
+                    }
+                    23 -> { // TypingStopped
+                        typingPeers.remove(nodeId ?: "")
+                        updateTypingIndicator()
+                    }
+                    24 -> { // GroupMessageReceived
+                        val group = extra ?: "?"
+                        val msg = "[$group] ${senderName ?: "?"}: $data"
+                        addChat(msg)
+                        groupMessages.getOrPut(group) { mutableListOf() }.add(msg)
+                    }
+                    25 -> { // GroupJoined
+                        addChat("[Group] ${senderName ?: nodeId?.take(8)} joined $extra")
+                    }
+                    26 -> { // GroupLeft
+                        addChat("[Group] ${nodeId?.take(8)} left $extra")
+                    }
+                    27 -> { // TriageReceived
+                        val msg = "[TRIAGE] ${senderName}: $data"
+                        addChat(msg)
+                        triageLog.add(msg)
+                    }
+                    28 -> { // ResourceRequestReceived
+                        val msg = "[RESOURCE] ${senderName}: $data"
+                        addChat(msg)
+                        resourceLog.add(msg)
+                    }
+                    29 -> { // CheckInReceived
+                        val msg = "[CHECK-IN] ${senderName}: $data"
+                        addChat(msg)
+                        safetyRoster[nodeId ?: ""] = "${senderName}: $data"
+                    }
+                    30 -> { // DisappearingReceived
+                        val ttl = value
+                        addChat("[Disappearing ${ttl}s] ${senderName}: $data")
+                        disappearingMsgs.add(Triple(
+                            "${senderName}: $data",
+                            data ?: "",
+                            System.currentTimeMillis() + ttl * 1000
+                        ))
+                    }
+                    31 -> { // HistoryLoaded
+                        // Could populate chat from stored messages
+                    }
                 }
             }
         }
@@ -246,11 +324,19 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         LocalBroadcastManager.getInstance(this)
             .registerReceiver(meshEventReceiver, IntentFilter(MeshService.BROADCAST_ACTION))
+        // Register WiFi Direct receiver
+        wifiDirectManager?.let {
+            registerReceiver(it.receiver, it.getIntentFilter())
+        }
     }
 
     override fun onPause() {
         super.onPause()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(meshEventReceiver)
+        // Unregister WiFi Direct receiver
+        wifiDirectManager?.let {
+            try { unregisterReceiver(it.receiver) } catch (_: Exception) {}
+        }
     }
 
     override fun onStop() {
@@ -265,6 +351,8 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         stopRecording()
         endCall()
+        bluetoothTransport?.stop()
+        wifiDirectManager?.stop()
     }
 
     // --- Build UI ---
@@ -282,7 +370,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         headerStatus = TextView(this).apply {
-            text = "Mesh"
+            text = "MassKritical"
             textSize = 16f
             setTextColor(0xFF00D4FF.toInt())
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -332,11 +420,13 @@ class MainActivity : AppCompatActivity() {
         tabRadar = makeTabButton("Radar") { switchTab("radar") }
         tabChat = makeTabButton("Chat") { switchTab("chat") }
         tabPeers = makeTabButton("Peers") { switchTab("peers") }
+        tabEmergency = makeTabButton("SOS") { switchTab("emergency") }
         tabSettings = makeTabButton("Settings") { switchTab("settings") }
 
         tabBar.addView(tabRadar)
         tabBar.addView(tabChat)
         tabBar.addView(tabPeers)
+        tabBar.addView(tabEmergency)
         tabBar.addView(tabSettings)
 
         root.addView(tabBar)
@@ -345,6 +435,7 @@ class MainActivity : AppCompatActivity() {
         buildChatView()
         buildPeersView()
         buildRadarView()
+        buildEmergencyView()
         buildSettingsView()
 
         setContentView(root)
@@ -525,6 +616,232 @@ class MainActivity : AppCompatActivity() {
         radarView.addView(startBtn)
     }
 
+    // --- Emergency Tab ---
+
+    private lateinit var emergencyView: LinearLayout
+    private lateinit var triageListView: ListView
+    private lateinit var triageAdapter: ArrayAdapter<String>
+    private lateinit var resourceListView: ListView
+    private lateinit var resourceAdapter: ArrayAdapter<String>
+    private lateinit var rosterText: TextView
+    private val triageDisplay = mutableListOf<String>()
+    private val resourceDisplay = mutableListOf<String>()
+
+    private fun buildEmergencyView() {
+        emergencyView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16, 16, 16, 16)
+        }
+
+        // "I'm OK" button - prominent
+        val imOkBtn = Button(this).apply {
+            text = "I'm OK"
+            textSize = 20f
+            setBackgroundColor(0xFF4CAF50.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(32, 24, 32, 24)
+            setOnClickListener {
+                MeshBridge.meshSendCheckIn("ok", 0.0, 0.0, "I'm OK")
+                Toast.makeText(this@MainActivity, "Check-in sent", Toast.LENGTH_SHORT).show()
+                addChat("[CHECK-IN] You: I'm OK")
+            }
+        }
+        emergencyView.addView(imOkBtn)
+
+        // "Need Help" button
+        val helpBtn = Button(this).apply {
+            text = "NEED HELP"
+            textSize = 16f
+            setBackgroundColor(0xFFFF5722.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            setPadding(32, 16, 32, 16)
+            setOnClickListener {
+                MeshBridge.meshSendCheckIn("need_help", 0.0, 0.0, "Need assistance")
+                Toast.makeText(this@MainActivity, "Help request sent", Toast.LENGTH_SHORT).show()
+                addChat("[CHECK-IN] You: NEED HELP")
+            }
+        }
+        val helpParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = 8 }
+        helpBtn.layoutParams = helpParams
+        emergencyView.addView(helpBtn)
+
+        // Triage section
+        val triageHeader = TextView(this).apply {
+            text = "Triage Log"
+            textSize = 16f
+            setTextColor(0xFFFF4444.toInt())
+            setPadding(0, 24, 0, 8)
+        }
+        emergencyView.addView(triageHeader)
+
+        // Quick triage buttons row
+        val triageRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val triageLevels = listOf("RED" to 0xFFFF0000.toInt(), "YEL" to 0xFFFFEB3B.toInt(), "GRN" to 0xFF4CAF50.toInt(), "BLK" to 0xFF333333.toInt())
+        triageLevels.forEachIndexed { idx, (label, color) ->
+            val btn = Button(this).apply {
+                text = label
+                setBackgroundColor(color)
+                setTextColor(0xFFFFFFFF.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { showTriageDialog(idx) }
+            }
+            triageRow.addView(btn)
+        }
+        emergencyView.addView(triageRow)
+
+        triageAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, triageDisplay)
+        triageListView = ListView(this).apply {
+            adapter = triageAdapter
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+            dividerHeight = 0
+        }
+        emergencyView.addView(triageListView)
+
+        // Resource requests section
+        val resHeader = TextView(this).apply {
+            text = "Resource Requests"
+            textSize = 16f
+            setTextColor(0xFFFFD700.toInt())
+            setPadding(0, 16, 0, 8)
+        }
+        emergencyView.addView(resHeader)
+
+        val resBtn = Button(this).apply {
+            text = "Request Resources"
+            setOnClickListener { showResourceDialog() }
+        }
+        emergencyView.addView(resBtn)
+
+        resourceAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, resourceDisplay)
+        resourceListView = ListView(this).apply {
+            adapter = resourceAdapter
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            )
+            dividerHeight = 0
+        }
+        emergencyView.addView(resourceListView)
+
+        // Safety roster
+        val rosterHeader = TextView(this).apply {
+            text = "Safety Roster"
+            textSize = 16f
+            setTextColor(0xFF4CAF50.toInt())
+            setPadding(0, 16, 0, 8)
+        }
+        emergencyView.addView(rosterHeader)
+
+        rosterText = TextView(this).apply {
+            text = "No check-ins received yet"
+            textSize = 13f
+            setLineSpacing(4f, 1.2f)
+        }
+        emergencyView.addView(rosterText)
+    }
+
+    private fun showTriageDialog(levelIdx: Int) {
+        val levelNames = arrayOf("Red - Immediate", "Yellow - Delayed", "Green - Minor", "Black - Expectant")
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 16, 32, 16)
+        }
+        val victimInput = EditText(this).apply { hint = "Victim ID" }
+        val notesInput = EditText(this).apply { hint = "Notes (injuries, situation)" }
+        layout.addView(victimInput)
+        layout.addView(notesInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Triage: ${levelNames[levelIdx]}")
+            .setView(layout)
+            .setPositiveButton("Send") { _, _ ->
+                val victim = victimInput.text.toString().trim().ifEmpty { "unknown" }
+                val notes = notesInput.text.toString().trim()
+                MeshBridge.meshSendTriage(levelIdx, victim, notes, 0.0, 0.0)
+                val msg = "[TRIAGE] ${levelNames[levelIdx]}: $victim - $notes"
+                triageLog.add(msg)
+                addChat(msg)
+                updateEmergencyView()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showResourceDialog() {
+        val categories = arrayOf("medical", "water", "food", "shelter", "evacuation", "power", "communication", "other")
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 16, 32, 16)
+        }
+        val catSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, categories)
+        }
+        val descInput = EditText(this).apply { hint = "Description" }
+        val urgencyInput = EditText(this).apply {
+            hint = "Urgency (1-5)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        layout.addView(catSpinner)
+        layout.addView(descInput)
+        layout.addView(urgencyInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Request Resources")
+            .setView(layout)
+            .setPositiveButton("Send") { _, _ ->
+                val cat = categories[catSpinner.selectedItemPosition]
+                val desc = descInput.text.toString().trim()
+                val urgency = urgencyInput.text.toString().toIntOrNull()?.coerceIn(1, 5) ?: 3
+                MeshBridge.meshSendResourceRequest(cat, desc, urgency, 0.0, 0.0, 1)
+                val msg = "[RESOURCE] $cat (urgency $urgency): $desc"
+                resourceLog.add(msg)
+                addChat(msg)
+                updateEmergencyView()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun updateEmergencyView() {
+        triageDisplay.clear()
+        triageDisplay.addAll(triageLog)
+        triageAdapter.notifyDataSetChanged()
+
+        resourceDisplay.clear()
+        resourceDisplay.addAll(resourceLog)
+        resourceAdapter.notifyDataSetChanged()
+
+        if (safetyRoster.isNotEmpty()) {
+            rosterText.text = safetyRoster.values.joinToString("\n")
+        } else {
+            rosterText.text = "No check-ins received yet"
+        }
+    }
+
+    // --- Typing indicator ---
+
+    private fun updateTypingIndicator() {
+        val now = System.currentTimeMillis()
+        // Remove expired typing indicators (>5 seconds old)
+        typingPeers.entries.removeAll { now - it.value > 5000 }
+
+        if (typingPeers.isEmpty()) return
+        val names = typingPeers.keys.mapNotNull { id ->
+            peerEntries.find { it.nodeId == id }?.displayName ?: id.take(8)
+        }
+        if (names.isNotEmpty()) {
+            val typing = if (names.size == 1) "${names[0]} is typing..."
+            else "${names.joinToString(", ")} are typing..."
+            // Could show this in a dedicated TextView above input
+        }
+    }
+
     // --- Settings Tab ---
 
     private fun buildSettingsView() {
@@ -599,6 +916,79 @@ class MainActivity : AppCompatActivity() {
         }
         settingsLayout.addView(connectivityInfo)
 
+        // Bluetooth Mesh toggle
+        val btPrefs = getSharedPreferences("mesh_transport_prefs", MODE_PRIVATE)
+        val btRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 4, 0, 8)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val btLabel = TextView(this).apply {
+            text = "Bluetooth Mesh"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        btRow.addView(btLabel)
+        val btSwitch = Switch(this).apply {
+            isChecked = btPrefs.getBoolean("bt_enabled", false)
+            tag = "bt_switch"
+            setOnCheckedChangeListener { _, isChecked ->
+                btPrefs.edit().putBoolean("bt_enabled", isChecked).apply()
+                if (isChecked) {
+                    enableBluetooth()
+                } else {
+                    disableBluetooth()
+                }
+            }
+        }
+        btRow.addView(btSwitch)
+        settingsLayout.addView(btRow)
+
+        val btStatusText = TextView(this).apply {
+            text = ""
+            textSize = 12f
+            tag = "bt_status"
+            setPadding(0, 0, 0, 8)
+            setTextColor(0xFF888888.toInt())
+        }
+        settingsLayout.addView(btStatusText)
+
+        // WiFi Direct toggle
+        val wdRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 4, 0, 8)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val wdLabel = TextView(this).apply {
+            text = "WiFi Direct"
+            textSize = 14f
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        wdRow.addView(wdLabel)
+        val wdSwitch = Switch(this).apply {
+            isChecked = btPrefs.getBoolean("wd_enabled", false)
+            tag = "wd_switch"
+            setOnCheckedChangeListener { _, isChecked ->
+                btPrefs.edit().putBoolean("wd_enabled", isChecked).apply()
+                if (isChecked) {
+                    enableWifiDirect()
+                } else {
+                    disableWifiDirect()
+                }
+            }
+        }
+        wdRow.addView(wdSwitch)
+        settingsLayout.addView(wdRow)
+
+        val wdStatusText = TextView(this).apply {
+            text = ""
+            textSize = 12f
+            tag = "wd_status"
+            setPadding(0, 0, 0, 16)
+            setTextColor(0xFF888888.toInt())
+        }
+        settingsLayout.addView(wdStatusText)
+
         addSettingsSection("Safety")
 
         val nukeBtn = Button(this).apply {
@@ -609,13 +999,24 @@ class MainActivity : AppCompatActivity() {
         }
         settingsLayout.addView(nukeBtn)
 
+        addSettingsSection("Groups")
+
+        val groupInfo = TextView(this).apply {
+            text = "Use /group join <name> in chat to join groups"
+            textSize = 12f
+            setPadding(0, 4, 0, 16)
+            tag = "groups_info"
+        }
+        settingsLayout.addView(groupInfo)
+
         addSettingsSection("About")
 
         val aboutText = TextView(this).apply {
-            text = "Mesh Network v0.3.0\n" +
-                    "Peer-to-peer mesh networking\n" +
-                    "Text, Voice Notes, Voice Calls, Files\n" +
-                    "End-to-end encrypted"
+            text = "MassKritical v0.3.0\n" +
+                    "Disaster Recovery Mesh Network\n" +
+                    "Text, Voice, Files, Groups, Triage, Check-In\n" +
+                    "End-to-end encrypted\n" +
+                    "Kraftbox 2026"
             textSize = 13f
             setLineSpacing(4f, 1.2f)
         }
@@ -638,7 +1039,7 @@ class MainActivity : AppCompatActivity() {
         currentTab = tab
         contentFrame.removeAllViews()
 
-        listOf(tabRadar, tabChat, tabPeers, tabSettings).forEach {
+        listOf(tabRadar, tabChat, tabPeers, tabEmergency, tabSettings).forEach {
             it.setTextColor(0xFFAAAAAA.toInt())
         }
 
@@ -658,6 +1059,12 @@ class MainActivity : AppCompatActivity() {
                 detachFromParent(peersView)
                 contentFrame.addView(peersView)
                 tabPeers.setTextColor(0xFF00D4FF.toInt())
+            }
+            "emergency" -> {
+                detachFromParent(emergencyView)
+                contentFrame.addView(emergencyView)
+                tabEmergency.setTextColor(0xFFFF4444.toInt())
+                updateEmergencyView()
             }
             "settings" -> {
                 detachFromParent(settingsLayout)
@@ -688,6 +1095,26 @@ class MainActivity : AppCompatActivity() {
         val text = chatInput.text.toString().trim()
         if (text.isEmpty()) return
 
+        // Handle slash commands
+        if (text.startsWith("/")) {
+            handleSlashCommand(text)
+            chatInput.text.clear()
+            return
+        }
+
+        // Send to active group if set
+        val group = activeGroup
+        if (group != null) {
+            val result = MeshBridge.meshSendGroupMessage(group, text)
+            if (result == 0) {
+                addChat("[$group] You: $text")
+                chatInput.text.clear()
+            } else {
+                addChat("[!] Failed to send group message")
+            }
+            return
+        }
+
         val target = dmTarget
         val result = if (target != null) {
             MeshBridge.meshSendDirect(target.nodeId, text)
@@ -695,12 +1122,83 @@ class MainActivity : AppCompatActivity() {
             MeshBridge.meshSendBroadcast(text)
         }
 
+        // Also send via Bluetooth transport
+        bluetoothTransport?.sendText(Build.MODEL, text)
+
         if (result == 0) {
+            val prefix = if (target != null) "[DM to ${target.displayName}]" else "[You]"
+            addChat("$prefix $text")
+            chatInput.text.clear()
+        } else if (bluetoothTransport != null && bluetoothTransport!!.getPeerCount() > 0) {
+            // Rust mesh failed but BT sent successfully
             val prefix = if (target != null) "[DM to ${target.displayName}]" else "[You]"
             addChat("$prefix $text")
             chatInput.text.clear()
         } else {
             addChat("[!] Failed to send message")
+        }
+    }
+
+    private fun handleSlashCommand(cmd: String) {
+        val parts = cmd.split(" ", limit = 3)
+        when (parts[0].lowercase()) {
+            "/group" -> {
+                if (parts.size < 3) {
+                    addChat("[!] Usage: /group join|leave <name>")
+                    return
+                }
+                val action = parts[1].lowercase()
+                val name = parts[2]
+                when (action) {
+                    "join" -> {
+                        MeshBridge.meshJoinGroup(name)
+                        joinedGroups.add(name)
+                        activeGroup = name
+                        chatInput.hint = "Message to #$name..."
+                        addChat("[*] Joined group #$name")
+                    }
+                    "leave" -> {
+                        MeshBridge.meshLeaveGroup(name)
+                        joinedGroups.remove(name)
+                        if (activeGroup == name) {
+                            activeGroup = null
+                            chatInput.hint = "Type a message..."
+                        }
+                        addChat("[*] Left group #$name")
+                    }
+                    else -> addChat("[!] Usage: /group join|leave <name>")
+                }
+            }
+            "/sos" -> {
+                val msg = if (parts.size > 1) parts.drop(1).joinToString(" ") else "Emergency!"
+                MeshBridge.meshSendSOS(msg, 0.0, 0.0)
+                addChat("[SOS] Sent: $msg")
+            }
+            "/checkin" -> {
+                val status = if (parts.size > 1) parts[1] else "ok"
+                val msg = if (parts.size > 2) parts[2] else ""
+                MeshBridge.meshSendCheckIn(status, 0.0, 0.0, msg)
+                addChat("[CHECK-IN] $status $msg")
+            }
+            "/disappear" -> {
+                if (parts.size < 3) {
+                    addChat("[!] Usage: /disappear <seconds> <message>")
+                    return
+                }
+                val ttl = parts[1].toIntOrNull() ?: 30
+                val msg = parts[2]
+                val destHex = dmTarget?.nodeId
+                MeshBridge.meshSendDisappearing(destHex, msg, ttl)
+                addChat("[Disappearing ${ttl}s] You: $msg")
+            }
+            "/broadcast" -> {
+                val msg = if (parts.size > 1) parts.drop(1).joinToString(" ") else ""
+                if (msg.isNotEmpty()) {
+                    MeshBridge.meshSendPublicBroadcast(msg)
+                    addChat("[PUBLIC] You: $msg")
+                }
+            }
+            else -> addChat("[!] Unknown command: ${parts[0]}")
         }
     }
 
@@ -712,12 +1210,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateHeader() {
         val status = if (meshService?.isNodeRunning() == true) {
-            "Mesh (${nodeIdShort ?: "..."})"
+            "MassKritical (${nodeIdShort ?: "..."})"
         } else {
-            "Mesh - Stopped"
+            "MassKritical - Stopped"
         }
         headerStatus.text = status
-        headerPeers.text = "Peers: $peerCount"
+        val btSuffix = if (btPeerCount > 0) " | BT: $btPeerCount" else ""
+        headerPeers.text = "Peers: $peerCount$btSuffix"
         headerGateway.text = if (gatewayName != null) "GW: $gatewayName" else ""
         headerConnectivity.text = activeInterface
     }
@@ -1162,6 +1661,25 @@ class MainActivity : AppCompatActivity() {
         ) {
             perms.add(Manifest.permission.RECORD_AUDIO)
         }
+        // Bluetooth permissions (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                perms.add(Manifest.permission.BLUETOOTH_SCAN)
+            }
+        }
+        // Fine location (needed for WiFi Direct and BT discovery on older Android)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            perms.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
         if (perms.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, perms.toTypedArray(), 1001)
         }
@@ -1172,6 +1690,165 @@ class MainActivity : AppCompatActivity() {
             bytes < 1024 -> "$bytes B"
             bytes < 1024 * 1024 -> "${bytes / 1024} KB"
             else -> "${bytes / (1024 * 1024)} MB"
+        }
+    }
+
+    // --- Bluetooth Transport ---
+
+    private fun enableBluetooth() {
+        // Check permissions first (Android 12+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
+                    1002
+                )
+                return
+            }
+        }
+
+        val bt = BluetoothTransport(this, Build.MODEL)
+        bt.setListener(this)
+        bt.start()
+        bluetoothTransport = bt
+        addChat("[BT] Bluetooth mesh enabled")
+    }
+
+    private fun disableBluetooth() {
+        bluetoothTransport?.stop()
+        bluetoothTransport = null
+        btPeerCount = 0
+        updateHeader()
+        settingsLayout.findViewWithTag<TextView>("bt_status")?.text = ""
+        addChat("[BT] Bluetooth mesh disabled")
+    }
+
+    // BluetoothTransport.Listener
+
+    override fun onBtMessageReceived(type: String, sender: String, content: String, json: JSONObject) {
+        runOnUiThread {
+            when (type) {
+                "text" -> addChat("[BT] $sender: $content")
+                "broadcast" -> addChat("[BT] $sender: $content")
+                "sos" -> addChat("[BT] !!! SOS from $sender: $content")
+                "checkin" -> {
+                    val status = json.optString("status", "")
+                    addChat("[BT] [CHECK-IN] $sender: $status $content")
+                }
+                else -> addChat("[BT] $sender: $content")
+            }
+
+            // Optionally forward BT messages into the TCP mesh
+            if (type in listOf("broadcast", "sos", "checkin")) {
+                MeshBridge.meshSendBroadcast("[BT relay] $sender: $content")
+            }
+        }
+    }
+
+    override fun onBtPeerConnected(address: String, name: String) {
+        runOnUiThread {
+            btPeerCount = bluetoothTransport?.getPeerCount() ?: 0
+            meshService?.setBtPeerCount(btPeerCount)
+            updateHeader()
+            addChat("[BT+] $name connected")
+        }
+    }
+
+    override fun onBtPeerDisconnected(address: String, name: String) {
+        runOnUiThread {
+            btPeerCount = bluetoothTransport?.getPeerCount() ?: 0
+            meshService?.setBtPeerCount(btPeerCount)
+            updateHeader()
+            addChat("[BT-] $name disconnected")
+        }
+    }
+
+    override fun onBtStatusChanged(status: String) {
+        runOnUiThread {
+            settingsLayout.findViewWithTag<TextView>("bt_status")?.text = status
+        }
+    }
+
+    // --- WiFi Direct ---
+
+    private fun enableWifiDirect() {
+        val mgr = WifiDirectManager(this)
+        mgr.setListener(this)
+        mgr.init()
+        mgr.start()
+        wifiDirectManager = mgr
+        registerReceiver(mgr.receiver, mgr.getIntentFilter())
+        addChat("[WD] WiFi Direct enabled")
+    }
+
+    private fun disableWifiDirect() {
+        wifiDirectManager?.let { mgr ->
+            try { unregisterReceiver(mgr.receiver) } catch (_: Exception) {}
+            mgr.stop()
+        }
+        wifiDirectManager = null
+        wifiDirectStatus = ""
+        settingsLayout.findViewWithTag<TextView>("wd_status")?.text = ""
+        addChat("[WD] WiFi Direct disabled")
+    }
+
+    // WifiDirectManager.Listener
+
+    override fun onWifiDirectStatusChanged(enabled: Boolean) {
+        runOnUiThread {
+            if (!enabled) {
+                settingsLayout.findViewWithTag<TextView>("wd_status")?.text = "WiFi Direct: Disabled on device"
+            }
+        }
+    }
+
+    override fun onWifiDirectPeersFound(peers: List<WifiP2pDevice>) {
+        runOnUiThread {
+            if (peers.isNotEmpty()) {
+                settingsLayout.findViewWithTag<TextView>("wd_status")?.text =
+                    "WiFi Direct: ${peers.size} peer(s) found"
+            }
+        }
+    }
+
+    override fun onWifiDirectConnected(info: WifiP2pInfo) {
+        runOnUiThread {
+            val role = if (info.isGroupOwner) "Group Owner" else "Connected"
+            wifiDirectStatus = "WiFi Direct: $role"
+            settingsLayout.findViewWithTag<TextView>("wd_status")?.text = wifiDirectStatus
+            addChat("[WD] $role — mesh will auto-discover over P2P interface")
+        }
+    }
+
+    override fun onWifiDirectDisconnected() {
+        runOnUiThread {
+            wifiDirectStatus = ""
+            settingsLayout.findViewWithTag<TextView>("wd_status")?.text = "WiFi Direct: Disconnected"
+        }
+    }
+
+    override fun onWifiDirectStatus(status: String) {
+        runOnUiThread {
+            wifiDirectStatus = status
+            settingsLayout.findViewWithTag<TextView>("wd_status")?.text = status
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1002) {
+            // BT permission result — retry enabling if granted
+            if (grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                enableBluetooth()
+            } else {
+                Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_SHORT).show()
+                settingsLayout.findViewWithTag<Switch>("bt_switch")?.isChecked = false
+            }
         }
     }
 }

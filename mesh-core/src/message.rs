@@ -22,6 +22,16 @@ pub enum MessageType {
     PeerExchange = 0x40,
     KeyExchange = 0x50,
     ProfileUpdate = 0x60,
+    ReadReceipt = 0x13,
+    TypingStart = 0x14,
+    TypingStop = 0x15,
+    GroupMessage = 0x16,
+    GroupJoin = 0x17,
+    GroupLeave = 0x18,
+    CheckIn = 0x19,
+    Triage = 0x1A,
+    ResourceReq = 0x1B,
+    Disappearing = 0x1C,
 }
 
 /// A unique message ID (32 bytes random).
@@ -44,6 +54,9 @@ pub struct MeshMessage {
     /// None = broadcast, Some = direct to this node ID
     pub destination: Option<[u8; 32]>,
     pub payload: Vec<u8>,
+    /// Ed25519 signature over (msg_type, sender_id, msg_id, payload)
+    #[serde(default)]
+    pub signature: Option<Vec<u8>>,
 }
 
 impl MeshMessage {
@@ -61,7 +74,20 @@ impl MeshMessage {
             ttl,
             destination,
             payload,
+            signature: None,
         }
+    }
+
+    /// Compute the signing payload: (msg_type as u8) + sender_id + msg_id + payload hash.
+    pub fn signing_bytes(&self) -> Vec<u8> {
+        use sha2::{Sha256, Digest};
+        let mut buf = Vec::new();
+        buf.push(self.msg_type as u8);
+        buf.extend_from_slice(&self.sender_id);
+        buf.extend_from_slice(&self.msg_id);
+        let payload_hash = Sha256::digest(&self.payload);
+        buf.extend_from_slice(&payload_hash);
+        buf
     }
 
     /// Create a text message (broadcast).
@@ -132,6 +158,69 @@ impl MeshMessage {
     pub fn call_end(sender_id: [u8; 32], dest: [u8; 32], payload: &CallControlPayload) -> Self {
         let bytes = bincode::serialize(payload).expect("CallEnd serialization failed");
         Self::new(MessageType::CallEnd, sender_id, 2, Some(dest), bytes)
+    }
+
+    /// Create a read receipt message.
+    pub fn read_receipt(sender_id: [u8; 32], dest: [u8; 32], original_msg_id: MessageId) -> Self {
+        let payload = ReadReceiptPayload { original_msg_id };
+        let bytes = bincode::serialize(&payload).expect("ReadReceipt serialization failed");
+        Self::new(MessageType::ReadReceipt, sender_id, 10, Some(dest), bytes)
+    }
+
+    /// Create a typing start indicator.
+    pub fn typing_start(sender_id: [u8; 32], dest: Option<[u8; 32]>) -> Self {
+        Self::new(MessageType::TypingStart, sender_id, 1, dest, vec![])
+    }
+
+    /// Create a typing stop indicator.
+    pub fn typing_stop(sender_id: [u8; 32], dest: Option<[u8; 32]>) -> Self {
+        Self::new(MessageType::TypingStop, sender_id, 1, dest, vec![])
+    }
+
+    /// Create a group message.
+    pub fn group_message(sender_id: [u8; 32], group_name: &str, content: &str) -> Self {
+        let payload = GroupPayload { group_name: group_name.to_string(), content: content.to_string() };
+        let bytes = bincode::serialize(&payload).expect("GroupPayload serialization failed");
+        Self::new(MessageType::GroupMessage, sender_id, 10, None, bytes)
+    }
+
+    /// Create a group join announcement.
+    pub fn group_join(sender_id: [u8; 32], group_name: &str) -> Self {
+        let payload = GroupControlPayload { group_name: group_name.to_string() };
+        let bytes = bincode::serialize(&payload).expect("GroupControl serialization failed");
+        Self::new(MessageType::GroupJoin, sender_id, 10, None, bytes)
+    }
+
+    /// Create a group leave announcement.
+    pub fn group_leave(sender_id: [u8; 32], group_name: &str) -> Self {
+        let payload = GroupControlPayload { group_name: group_name.to_string() };
+        let bytes = bincode::serialize(&payload).expect("GroupControl serialization failed");
+        Self::new(MessageType::GroupLeave, sender_id, 10, None, bytes)
+    }
+
+    /// Create a triage tag message (wide broadcast).
+    pub fn triage(sender_id: [u8; 32], payload: &TriagePayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("Triage serialization failed");
+        Self::new(MessageType::Triage, sender_id, 50, None, bytes)
+    }
+
+    /// Create a resource request message (wide broadcast).
+    pub fn resource_request(sender_id: [u8; 32], payload: &ResourceRequestPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("ResourceRequest serialization failed");
+        Self::new(MessageType::ResourceReq, sender_id, 50, None, bytes)
+    }
+
+    /// Create a check-in message (wide broadcast).
+    pub fn check_in(sender_id: [u8; 32], payload: &CheckInPayload) -> Self {
+        let bytes = bincode::serialize(payload).expect("CheckIn serialization failed");
+        Self::new(MessageType::CheckIn, sender_id, 50, None, bytes)
+    }
+
+    /// Create a disappearing message.
+    pub fn disappearing(sender_id: [u8; 32], dest: Option<[u8; 32]>, text: &str, ttl_seconds: u32) -> Self {
+        let payload = DisappearingPayload { text: text.to_string(), ttl_seconds };
+        let bytes = bincode::serialize(&payload).expect("Disappearing serialization failed");
+        Self::new(MessageType::Disappearing, sender_id, 10, dest, bytes)
     }
 
     /// Serialize to bytes using bincode.
@@ -226,6 +315,93 @@ pub struct CallControlPayload {
 pub struct SOSPayload {
     pub text: String,
     pub location: Option<(f64, f64)>,
+}
+
+// ---------------------------------------------------------------------------
+// New payload structs (groups, emergency, disappearing, read receipts)
+// ---------------------------------------------------------------------------
+
+/// Read receipt payload — confirms delivery/read of a message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadReceiptPayload {
+    pub original_msg_id: MessageId,
+}
+
+/// Group message payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupPayload {
+    pub group_name: String,
+    pub content: String,
+}
+
+/// Group control payload (join/leave).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupControlPayload {
+    pub group_name: String,
+}
+
+/// START triage levels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TriageLevel {
+    Black,
+    Red,
+    Yellow,
+    Green,
+}
+
+impl TriageLevel {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TriageLevel::Black => "BLACK",
+            TriageLevel::Red => "RED",
+            TriageLevel::Yellow => "YELLOW",
+            TriageLevel::Green => "GREEN",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "black" => Some(TriageLevel::Black),
+            "red" => Some(TriageLevel::Red),
+            "yellow" => Some(TriageLevel::Yellow),
+            "green" => Some(TriageLevel::Green),
+            _ => None,
+        }
+    }
+}
+
+/// Triage tag payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriagePayload {
+    pub level: TriageLevel,
+    pub victim_id: String,
+    pub notes: String,
+    pub location: Option<(f64, f64)>,
+}
+
+/// Structured resource request payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceRequestPayload {
+    pub category: String,
+    pub description: String,
+    pub urgency: u8,
+    pub location: Option<(f64, f64)>,
+    pub quantity: u32,
+}
+
+/// Safety check-in payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckInPayload {
+    pub status: String,
+    pub location: Option<(f64, f64)>,
+    pub message: String,
+}
+
+/// Disappearing message payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisappearingPayload {
+    pub text: String,
+    pub ttl_seconds: u32,
 }
 
 // ---------------------------------------------------------------------------

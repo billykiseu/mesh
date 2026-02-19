@@ -7,6 +7,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 use mesh_core::{NodeConfig, NodeEvent, NodeHandle, NodeIdentity, start_mesh_node};
+use mesh_core::{TriagePayload, TriageLevel, ResourceRequestPayload, CheckInPayload};
 
 /// Global state for the FFI layer.
 struct FfiState {
@@ -27,6 +28,7 @@ fn init_node(name: String, listen_port: u16, data_dir: String) -> Result<(), ()>
         display_name: name,
         listen_port,
         key_path: PathBuf::from(&data_dir).join("mesh_identity.key"),
+        data_dir: Some(PathBuf::from(&data_dir)),
     };
 
     let runtime = Runtime::new().map_err(|_| ())?;
@@ -304,6 +306,134 @@ pub unsafe extern "C" fn mesh_send_audio_frame(
 }
 
 // ---------------------------------------------------------------------------
+// New C FFI functions for extended features
+// ---------------------------------------------------------------------------
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_read_receipt(dest_hex: *const c_char, msg_id_hex: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let dest_str = match CStr::from_ptr(dest_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let dest = match parse_hex_node_id(dest_str) { Some(b) => b, None => return -1 };
+    let mid_str = match CStr::from_ptr(msg_id_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let mid = match parse_hex_node_id(mid_str) { Some(b) => b, None => return -1 };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_read_receipt(dest, mid)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_typing_start(dest_hex: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let dest = if dest_hex.is_null() { None } else {
+        let s = match CStr::from_ptr(dest_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+        Some(match parse_hex_node_id(s) { Some(b) => b, None => return -1 })
+    };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_typing_start(dest)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_typing_stop(dest_hex: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let dest = if dest_hex.is_null() { None } else {
+        let s = match CStr::from_ptr(dest_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+        Some(match parse_hex_node_id(s) { Some(b) => b, None => return -1 })
+    };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_typing_stop(dest)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_join_group(group_name: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let name = match CStr::from_ptr(group_name).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.join_group(name)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_leave_group(group_name: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let name = match CStr::from_ptr(group_name).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.leave_group(name)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_group_message(group_name: *const c_char, text: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let name = match CStr::from_ptr(group_name).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let text = match CStr::from_ptr(text).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_group_message(name, text)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_triage(level: i32, victim_id: *const c_char, notes: *const c_char, lat: f64, lon: f64) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let vid = match CStr::from_ptr(victim_id).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let n = match CStr::from_ptr(notes).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let tl = match level {
+        0 => TriageLevel::Black, 1 => TriageLevel::Red, 2 => TriageLevel::Yellow, 3 => TriageLevel::Green, _ => return -1,
+    };
+    let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+    let payload = TriagePayload { level: tl, victim_id: vid.to_string(), notes: n.to_string(), location: loc };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_triage(payload)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_resource_request(
+    category: *const c_char, description: *const c_char, urgency: i32, lat: f64, lon: f64, quantity: i32,
+) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let cat = match CStr::from_ptr(category).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let desc = match CStr::from_ptr(description).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+    let payload = ResourceRequestPayload {
+        category: cat.to_string(), description: desc.to_string(), urgency: urgency as u8, location: loc, quantity: quantity as u32,
+    };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_resource_request(payload)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_check_in(status: *const c_char, lat: f64, lon: f64, message: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let st = match CStr::from_ptr(status).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let msg = match CStr::from_ptr(message).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+    let payload = CheckInPayload { status: st.to_string(), location: loc, message: msg.to_string() };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_check_in(payload)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_send_disappearing(dest_hex: *const c_char, text: *const c_char, ttl_seconds: i32) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let dest = if dest_hex.is_null() { None } else {
+        let s = match CStr::from_ptr(dest_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+        Some(match parse_hex_node_id(s) { Some(b) => b, None => return -1 })
+    };
+    let text = match CStr::from_ptr(text).to_str() { Ok(s) => s, Err(_) => return -1 };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.send_disappearing(dest, text, ttl_seconds as u32)).map(|_| 0i32).unwrap_or(-1)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mesh_load_history(peer_hex: *const c_char, group_name: *const c_char) -> i32 {
+    let state = match STATE.get() { Some(s) => s, None => return -1 };
+    let peer = if peer_hex.is_null() { None } else {
+        let s = match CStr::from_ptr(peer_hex).to_str() { Ok(s) => s, Err(_) => return -1 };
+        Some(match parse_hex_node_id(s) { Some(b) => b, None => return -1 })
+    };
+    let group = if group_name.is_null() { None } else {
+        Some(match CStr::from_ptr(group_name).to_str() { Ok(s) => s.to_string(), Err(_) => return -1 })
+    };
+    let h = state.handle.clone();
+    state.runtime.block_on(h.load_history(peer, group)).map(|_| 0i32).unwrap_or(-1)
+}
+
+// ---------------------------------------------------------------------------
 // Event polling
 // ---------------------------------------------------------------------------
 
@@ -555,6 +685,109 @@ fn convert_event(event: NodeEvent) -> MeshEvent {
             node_id: to_c_string(&hex::encode(node_id)),
             ..MeshEvent::empty()
         },
+        NodeEvent::MessageDelivered { msg_id, by_peer } => MeshEvent {
+            event_type: 21,
+            node_id: to_c_string(&hex::encode(by_peer)),
+            extra: to_c_string(&hex::encode(msg_id)),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::TypingStarted { peer, peer_name } => MeshEvent {
+            event_type: 22,
+            node_id: to_c_string(&hex::encode(peer)),
+            data: to_c_string(&peer_name),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::TypingStopped { peer } => MeshEvent {
+            event_type: 23,
+            node_id: to_c_string(&hex::encode(peer)),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::GroupMessageReceived { group, sender_id, sender_name, content } => MeshEvent {
+            event_type: 24,
+            node_id: to_c_string(&hex::encode(sender_id)),
+            data: to_c_string(&content),
+            sender_name: to_c_string(&sender_name),
+            extra: to_c_string(&group),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::GroupJoined { group, peer, peer_name } => MeshEvent {
+            event_type: 25,
+            node_id: to_c_string(&hex::encode(peer)),
+            data: to_c_string(&peer_name),
+            extra: to_c_string(&group),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::GroupLeft { group, peer } => MeshEvent {
+            event_type: 26,
+            node_id: to_c_string(&hex::encode(peer)),
+            extra: to_c_string(&group),
+            ..MeshEvent::empty()
+        },
+        NodeEvent::TriageReceived { sender_id, sender_name, triage } => {
+            let (lat, lon) = triage.location.unwrap_or((0.0, 0.0));
+            let json = format!(
+                r#"{{"level":"{}","victim_id":"{}","notes":"{}"}}"#,
+                triage.level.label(), triage.victim_id, triage.notes.replace('"', "\\\""),
+            );
+            MeshEvent {
+                event_type: 27,
+                node_id: to_c_string(&hex::encode(sender_id)),
+                sender_name: to_c_string(&sender_name),
+                data: to_c_string(&json),
+                float1: lat, float2: lon,
+                ..MeshEvent::empty()
+            }
+        },
+        NodeEvent::ResourceRequestReceived { sender_id, sender_name, request } => {
+            let (lat, lon) = request.location.unwrap_or((0.0, 0.0));
+            let json = format!(
+                r#"{{"category":"{}","description":"{}","urgency":{},"quantity":{}}}"#,
+                request.category, request.description.replace('"', "\\\""), request.urgency, request.quantity,
+            );
+            MeshEvent {
+                event_type: 28,
+                node_id: to_c_string(&hex::encode(sender_id)),
+                sender_name: to_c_string(&sender_name),
+                data: to_c_string(&json),
+                float1: lat, float2: lon,
+                ..MeshEvent::empty()
+            }
+        },
+        NodeEvent::CheckInReceived { sender_id, sender_name, check_in } => {
+            let (lat, lon) = check_in.location.unwrap_or((0.0, 0.0));
+            let json = format!(
+                r#"{{"status":"{}","message":"{}"}}"#,
+                check_in.status, check_in.message.replace('"', "\\\""),
+            );
+            MeshEvent {
+                event_type: 29,
+                node_id: to_c_string(&hex::encode(sender_id)),
+                sender_name: to_c_string(&sender_name),
+                data: to_c_string(&json),
+                float1: lat, float2: lon,
+                ..MeshEvent::empty()
+            }
+        },
+        NodeEvent::DisappearingReceived { sender_id, sender_name, text, ttl_seconds } => MeshEvent {
+            event_type: 30,
+            node_id: to_c_string(&hex::encode(sender_id)),
+            sender_name: to_c_string(&sender_name),
+            data: to_c_string(&text),
+            value: ttl_seconds as i64,
+            ..MeshEvent::empty()
+        },
+        NodeEvent::HistoryLoaded { messages } => {
+            let json = format!("[{}]", messages.iter().map(|m| {
+                format!(r#"{{"id":{},"sender":"{}","content":"{}","type":"{}","ts":{}}}"#,
+                    m.id, m.sender_name.replace('"', "\\\""), m.content.replace('"', "\\\""), m.msg_type, m.timestamp)
+            }).collect::<Vec<_>>().join(","));
+            MeshEvent {
+                event_type: 31,
+                data: to_c_string(&json),
+                value: messages.len() as i64,
+                ..MeshEvent::empty()
+            }
+        },
         NodeEvent::Nuked => MeshEvent {
             event_type: 19,
             ..MeshEvent::empty()
@@ -793,6 +1026,156 @@ mod jni_bindings {
         state.runtime.block_on(h.send_audio_frame(peer, frame)).map(|_| 0i32).unwrap_or(-1)
     }
 
+    // --- New JNI functions for extended features ---
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendReadReceipt(
+        mut env: JNIEnv, _class: JClass, dest_hex: JString, msg_id_hex: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let dest_str: String = match env.get_string(&dest_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+        let mid_str: String = match env.get_string(&msg_id_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+        let dest = match parse_hex_node_id(&dest_str) { Some(b) => b, None => return -1 };
+        let mid = match parse_hex_node_id(&mid_str) { Some(b) => b, None => return -1 };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_read_receipt(dest, mid)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendTypingStart(
+        mut env: JNIEnv, _class: JClass, dest_hex: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let dest = if env.is_same_object(&dest_hex, JObject::null()).unwrap_or(true) { None } else {
+            let s: String = match env.get_string(&dest_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+            Some(match parse_hex_node_id(&s) { Some(b) => b, None => return -1 })
+        };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_typing_start(dest)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendTypingStop(
+        mut env: JNIEnv, _class: JClass, dest_hex: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let dest = if env.is_same_object(&dest_hex, JObject::null()).unwrap_or(true) { None } else {
+            let s: String = match env.get_string(&dest_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+            Some(match parse_hex_node_id(&s) { Some(b) => b, None => return -1 })
+        };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_typing_stop(dest)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshJoinGroup(
+        mut env: JNIEnv, _class: JClass, group_name: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let name: String = match env.get_string(&group_name) { Ok(s) => s.into(), Err(_) => return -1 };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.join_group(&name)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshLeaveGroup(
+        mut env: JNIEnv, _class: JClass, group_name: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let name: String = match env.get_string(&group_name) { Ok(s) => s.into(), Err(_) => return -1 };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.leave_group(&name)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendGroupMessage(
+        mut env: JNIEnv, _class: JClass, group_name: JString, text: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let name: String = match env.get_string(&group_name) { Ok(s) => s.into(), Err(_) => return -1 };
+        let text: String = match env.get_string(&text) { Ok(s) => s.into(), Err(_) => return -1 };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_group_message(&name, &text)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendTriage(
+        mut env: JNIEnv, _class: JClass,
+        level: jint, victim_id: JString, notes: JString, lat: jdouble, lon: jdouble,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let vid: String = match env.get_string(&victim_id) { Ok(s) => s.into(), Err(_) => return -1 };
+        let n: String = match env.get_string(&notes) { Ok(s) => s.into(), Err(_) => return -1 };
+        let tl = match level {
+            0 => TriageLevel::Black, 1 => TriageLevel::Red, 2 => TriageLevel::Yellow, 3 => TriageLevel::Green, _ => return -1,
+        };
+        let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+        let payload = TriagePayload { level: tl, victim_id: vid, notes: n, location: loc };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_triage(payload)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendResourceRequest(
+        mut env: JNIEnv, _class: JClass,
+        category: JString, description: JString, urgency: jint, lat: jdouble, lon: jdouble, quantity: jint,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let cat: String = match env.get_string(&category) { Ok(s) => s.into(), Err(_) => return -1 };
+        let desc: String = match env.get_string(&description) { Ok(s) => s.into(), Err(_) => return -1 };
+        let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+        let payload = ResourceRequestPayload {
+            category: cat, description: desc, urgency: urgency as u8, location: loc, quantity: quantity as u32,
+        };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_resource_request(payload)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendCheckIn(
+        mut env: JNIEnv, _class: JClass,
+        status: JString, lat: jdouble, lon: jdouble, message: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let st: String = match env.get_string(&status) { Ok(s) => s.into(), Err(_) => return -1 };
+        let msg: String = match env.get_string(&message) { Ok(s) => s.into(), Err(_) => return -1 };
+        let loc = if lat == 0.0 && lon == 0.0 { None } else { Some((lat, lon)) };
+        let payload = CheckInPayload { status: st, location: loc, message: msg };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_check_in(payload)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshSendDisappearing(
+        mut env: JNIEnv, _class: JClass,
+        dest_hex: JString, text: JString, ttl_seconds: jint,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let dest = if env.is_same_object(&dest_hex, JObject::null()).unwrap_or(true) { None } else {
+            let s: String = match env.get_string(&dest_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+            Some(match parse_hex_node_id(&s) { Some(b) => b, None => return -1 })
+        };
+        let text: String = match env.get_string(&text) { Ok(s) => s.into(), Err(_) => return -1 };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.send_disappearing(dest, &text, ttl_seconds as u32)).map(|_| 0i32).unwrap_or(-1)
+    }
+
+    #[no_mangle]
+    pub extern "system" fn Java_com_mesh_app_MeshBridge_meshLoadHistory(
+        mut env: JNIEnv, _class: JClass, peer_hex: JString, group_name: JString,
+    ) -> jint {
+        let state = match STATE.get() { Some(s) => s, None => return -1 };
+        let peer = if env.is_same_object(&peer_hex, JObject::null()).unwrap_or(true) { None } else {
+            let s: String = match env.get_string(&peer_hex) { Ok(s) => s.into(), Err(_) => return -1 };
+            Some(match parse_hex_node_id(&s) { Some(b) => b, None => return -1 })
+        };
+        let group = if env.is_same_object(&group_name, JObject::null()).unwrap_or(true) { None } else {
+            Some(match env.get_string(&group_name) { Ok(s) => String::from(s), Err(_) => return -1 })
+        };
+        let h = state.handle.clone();
+        state.runtime.block_on(h.load_history(peer, group)).map(|_| 0i32).unwrap_or(-1)
+    }
+
     /// Poll for the next mesh event. Returns a MeshBridge.MeshEvent object, or null.
     #[no_mangle]
     pub extern "system" fn Java_com_mesh_app_MeshBridge_meshPollEvent(
@@ -868,6 +1251,45 @@ mod jni_bindings {
                 (17, Some(hex::encode(sender_id)), Some(text), Some(sender_name), None, 0, 0.0, 0.0, None),
             NodeEvent::GatewayLost { node_id } =>
                 (18, Some(hex::encode(node_id)), None, None, None, 0, 0.0, 0.0, None),
+            NodeEvent::MessageDelivered { msg_id, by_peer } =>
+                (21, Some(hex::encode(by_peer)), None, None, Some(hex::encode(msg_id)), 0, 0.0, 0.0, None),
+            NodeEvent::TypingStarted { peer, peer_name } =>
+                (22, Some(hex::encode(peer)), Some(peer_name), None, None, 0, 0.0, 0.0, None),
+            NodeEvent::TypingStopped { peer } =>
+                (23, Some(hex::encode(peer)), None, None, None, 0, 0.0, 0.0, None),
+            NodeEvent::GroupMessageReceived { group, sender_id, sender_name, content } =>
+                (24, Some(hex::encode(sender_id)), Some(content), Some(sender_name), Some(group), 0, 0.0, 0.0, None),
+            NodeEvent::GroupJoined { group, peer, peer_name } =>
+                (25, Some(hex::encode(peer)), Some(peer_name), None, Some(group), 0, 0.0, 0.0, None),
+            NodeEvent::GroupLeft { group, peer } =>
+                (26, Some(hex::encode(peer)), None, None, Some(group), 0, 0.0, 0.0, None),
+            NodeEvent::TriageReceived { sender_id, sender_name, triage } => {
+                let (lat, lon) = triage.location.unwrap_or((0.0, 0.0));
+                let json = format!(r#"{{"level":"{}","victim_id":"{}","notes":"{}"}}"#,
+                    triage.level.label(), triage.victim_id, triage.notes.replace('"', "\\\""));
+                (27, Some(hex::encode(sender_id)), Some(json), Some(sender_name), None, 0, lat, lon, None)
+            },
+            NodeEvent::ResourceRequestReceived { sender_id, sender_name, request } => {
+                let (lat, lon) = request.location.unwrap_or((0.0, 0.0));
+                let json = format!(r#"{{"category":"{}","description":"{}","urgency":{},"quantity":{}}}"#,
+                    request.category, request.description.replace('"', "\\\""), request.urgency, request.quantity);
+                (28, Some(hex::encode(sender_id)), Some(json), Some(sender_name), None, 0, lat, lon, None)
+            },
+            NodeEvent::CheckInReceived { sender_id, sender_name, check_in } => {
+                let (lat, lon) = check_in.location.unwrap_or((0.0, 0.0));
+                let json = format!(r#"{{"status":"{}","message":"{}"}}"#,
+                    check_in.status, check_in.message.replace('"', "\\\""));
+                (29, Some(hex::encode(sender_id)), Some(json), Some(sender_name), None, 0, lat, lon, None)
+            },
+            NodeEvent::DisappearingReceived { sender_id, sender_name, text, ttl_seconds } =>
+                (30, Some(hex::encode(sender_id)), Some(text), Some(sender_name), None, ttl_seconds as i64, 0.0, 0.0, None),
+            NodeEvent::HistoryLoaded { messages } => {
+                let json = format!("[{}]", messages.iter().map(|m| {
+                    format!(r#"{{"id":{},"sender":"{}","content":"{}","type":"{}","ts":{}}}"#,
+                        m.id, m.sender_name, m.content, m.msg_type, m.timestamp)
+                }).collect::<Vec<_>>().join(","));
+                (31, None, Some(json), None, None, messages.len() as i64, 0.0, 0.0, None)
+            },
             NodeEvent::Nuked =>
                 (19, None, None, None, None, 0, 0.0, 0.0, None),
             NodeEvent::Stopped =>

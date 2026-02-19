@@ -14,3 +14,5 @@ egui_extras = { version = "0.31", features = ["image"] }
 rfd = "0.15"
 hex = "0.4"
 cpal = "0.15"
+image = { version = "0.25", default-features = false, features = ["ico", "jpeg", "png"] }
+rodio = "0.19"

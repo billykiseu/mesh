@@ -26,7 +26,7 @@ class OnboardingActivity : AppCompatActivity() {
 
     private val pages = listOf(
         Page(
-            "Welcome to Mesh",
+            "Welcome to MassKritical",
             "A peer-to-peer mesh network that works without internet.\n\n" +
                     "Connect with people nearby over WiFi or hotspot. " +
                     "No servers, no accounts, no tracking.",

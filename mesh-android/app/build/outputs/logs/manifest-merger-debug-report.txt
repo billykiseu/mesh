@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-45:12
-INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-45:12
-INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-45:12
-INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-45:12
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-52:12
+INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-52:12
+INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-52:12
+INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:2:1-52:12
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\Kiseu\.gradle\caches\transforms-3\c4f54cd85dc3b3a61cd7e49810f358ac\transformed\material-1.11.0\AndroidManifest.xml:17:1-24:12
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\Kiseu\.gradle\caches\transforms-3\93b1cb795f0ace3cb6aef89786a560a3\transformed\constraintlayout-2.1.4\AndroidManifest.xml:2:1-11:12
 MERGED from [androidx.appcompat:appcompat-resources:1.6.1] C:\Users\Kiseu\.gradle\caches\transforms-3\4d291af891452286c84826c00582a971\transformed\appcompat-resources-1.6.1\AndroidManifest.xml:17:1-22:12
@@ -96,9 +96,37 @@ ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:1
 		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:78-104
 	android:name
 		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:12:22-77
+uses-permission#android.permission.BLUETOOTH
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:13:5-68
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:13:22-65
+uses-permission#android.permission.BLUETOOTH_ADMIN
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:5-74
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:22-71
+uses-permission#android.permission.BLUETOOTH_CONNECT
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:15:5-76
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:15:22-73
+uses-permission#android.permission.BLUETOOTH_SCAN
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:16:5-73
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:16:22-70
+uses-permission#android.permission.BLUETOOTH_ADVERTISE
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:17:5-78
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:17:22-75
+uses-permission#android.permission.ACCESS_FINE_LOCATION
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:18:5-79
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:18:22-76
+uses-permission#android.permission.NEARBY_WIFI_DEVICES
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:19:5-78
+	android:name
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:19:22-75
 application
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:5-44:19
-INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:14:5-44:19
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:21:5-51:19
+INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:21:5-51:19
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\Kiseu\.gradle\caches\transforms-3\c4f54cd85dc3b3a61cd7e49810f358ac\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [com.google.android.material:material:1.11.0] C:\Users\Kiseu\.gradle\caches\transforms-3\c4f54cd85dc3b3a61cd7e49810f358ac\transformed\material-1.11.0\AndroidManifest.xml:22:5-20
 MERGED from [androidx.constraintlayout:constraintlayout:2.1.4] C:\Users\Kiseu\.gradle\caches\transforms-3\93b1cb795f0ace3cb6aef89786a560a3\transformed\constraintlayout-2.1.4\AndroidManifest.xml:9:5-20
@@ -120,51 +148,51 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\Kiseu\.gradle\cach
 	android:appComponentFactory
 		ADDED from [androidx.core:core:1.12.0] C:\Users\Kiseu\.gradle\caches\transforms-3\3a3c9da51d997344f60b63d58c3e81b4\transformed\core-1.12.0\AndroidManifest.xml:28:18-86
 	android:supportsRtl
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:17:9-35
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:24:9-35
 	android:label
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:16:9-37
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:23:9-37
 	android:allowBackup
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:15:9-35
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:22:9-35
 	android:theme
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:18:9-79
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:25:9-79
 activity#com.mesh.app.OnboardingActivity
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:21:9-28:20
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:28:9-35:20
 	android:exported
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:23:13-36
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:30:13-36
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:22:13-47
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:29:13-47
 intent-filter#action:name:android.intent.action.MAIN+category:name:android.intent.category.LAUNCHER
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:24:13-27:29
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:31:13-34:29
 action#android.intent.action.MAIN
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:25:17-69
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:32:17-69
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:25:25-66
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:32:25-66
 category#android.intent.category.LAUNCHER
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:26:17-77
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:33:17-77
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:26:27-74
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:33:27-74
 activity#com.mesh.app.PinActivity
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:30:9-32:40
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:37:9-39:40
 	android:exported
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:32:13-37
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:39:13-37
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:31:13-40
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:38:13-40
 activity#com.mesh.app.MainActivity
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:34:9-37:46
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:41:9-44:46
 	android:launchMode
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:37:13-43
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:44:13-43
 	android:exported
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:36:13-37
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:43:13-37
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:35:13-41
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:42:13-41
 service#com.mesh.app.MeshService
-ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:39:9-42:40
+ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:46:9-49:40
 	android:exported
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:42:13-37
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:49:13-37
 	android:foregroundServiceType
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:41:13-60
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:48:13-60
 	android:name
-		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:40:13-40
+		ADDED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml:47:13-40
 uses-sdk
 INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from D:\Mainframe\Lab\Mesh\mesh-android\app\src\main\AndroidManifest.xml

@@ -78,6 +78,39 @@ impl NodeIdentity {
         self.node_id
     }
 
+    /// Get the signing key reference (for message signing).
+    pub fn signing_key(&self) -> &SigningKey {
+        &self.signing_key
+    }
+
+    /// Compute a safety number from two peers' public keys.
+    /// Both peers will compute the same number regardless of order.
+    /// Returns 12 groups of 5 digits (60 digits total).
+    pub fn safety_number(our_key: &[u8; 32], their_key: &[u8; 32]) -> String {
+        use sha2::{Sha256, Digest};
+
+        // Sort keys so both peers compute the same number
+        let (a, b) = if our_key < their_key {
+            (our_key, their_key)
+        } else {
+            (their_key, our_key)
+        };
+
+        let mut hasher = Sha256::new();
+        hasher.update(a);
+        hasher.update(b);
+        let hash = hasher.finalize();
+
+        // Format as 12 groups of 5 digits
+        let mut groups = Vec::new();
+        for i in 0..12 {
+            let offset = (i * 2) % 30; // cycle through 30 bytes
+            let val = (hash[offset] as u32) << 8 | (hash[offset + 1] as u32);
+            groups.push(format!("{:05}", val % 100000));
+        }
+        groups.join(" ")
+    }
+
     /// Securely delete the identity key file: overwrite with zeros, then delete.
     pub fn secure_delete(path: &Path) -> Result<()> {
         if path.exists() {

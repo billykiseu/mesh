@@ -9,7 +9,8 @@ use eframe::egui;
 use egui::{Color32, CornerRadius, FontId, RichText, Stroke, StrokeKind, Vec2};
 use egui_extras::{TableBuilder, Column};
 
-use mesh_core::{NodeConfig, NodeEvent, NodeHandle, MeshStats, start_mesh_node};
+use mesh_core::{NodeConfig, NodeEvent, NodeHandle, MeshStats, start_mesh_node, NodeIdentity};
+use mesh_core::{TriagePayload, TriageLevel, ResourceRequestPayload, CheckInPayload};
 
 // ---------------------------------------------------------------------------
 // Colours (Discord-inspired dark theme)
@@ -66,6 +67,7 @@ enum Tab {
     Chat,
     Peers,
     Files,
+    Emergency,
     Settings,
 }
 
@@ -116,6 +118,38 @@ struct MeshApp {
 
     // File send result channel
     file_pick_rx: Option<std_mpsc::Receiver<std::path::PathBuf>>,
+
+    // Groups
+    joined_groups: Vec<String>,
+    active_group: Option<String>,
+    group_join_input: String,
+
+    // Typing indicators
+    typing_peers: Vec<([u8; 32], String, Instant)>,
+    _typing_sent: bool,
+    _last_typed: Option<Instant>,
+
+    // Emergency data
+    triage_log: Vec<(String, TriagePayload)>,
+    resource_log: Vec<(String, ResourceRequestPayload)>,
+    safety_roster: Vec<([u8; 32], String, String, Instant)>, // (peer, name, status, time)
+
+    // Disappearing messages
+    disappearing_msgs: Vec<(String, String, Instant, u32)>, // (sender, text, received_at, ttl)
+
+    // Check-in button / triage / resource input
+    triage_victim_id: String,
+    triage_notes: String,
+    triage_level: String,
+    resource_category: String,
+    resource_description: String,
+    resource_urgency: String,
+
+    // Notification muted
+    notifications_muted: bool,
+
+    // Node identity (for safety numbers)
+    our_node_id: [u8; 32],
 
     // Async bridge
     handle: NodeHandle,
@@ -264,6 +298,54 @@ impl MeshApp {
                 self.stats = stats;
             }
             NodeEvent::PeerList { .. } => {}
+            NodeEvent::MessageDelivered { .. } => {
+                // Read receipt received - could update UI message status
+            }
+            NodeEvent::TypingStarted { peer, peer_name } => {
+                if !self.typing_peers.iter().any(|(id, _, _)| *id == peer) {
+                    self.typing_peers.push((peer, peer_name, Instant::now()));
+                }
+            }
+            NodeEvent::TypingStopped { peer } => {
+                self.typing_peers.retain(|(id, _, _)| *id != peer);
+            }
+            NodeEvent::GroupMessageReceived { group, sender_name, content, .. } => {
+                self.push_chat(format!("[{}] {}", group, sender_name), content, false);
+            }
+            NodeEvent::GroupJoined { group, peer_name, .. } => {
+                self.push_system(format!("{} joined group {}", peer_name, group));
+            }
+            NodeEvent::GroupLeft { group, .. } => {
+                self.push_system(format!("Peer left group {}", group));
+            }
+            NodeEvent::TriageReceived { sender_name, triage, .. } => {
+                self.push_system(format!(
+                    "TRIAGE [{}] from {}: victim={} - {}",
+                    triage.level.label(), sender_name, triage.victim_id, triage.notes
+                ));
+                self.triage_log.push((sender_name, triage));
+            }
+            NodeEvent::ResourceRequestReceived { sender_name, request, .. } => {
+                self.push_system(format!(
+                    "RESOURCE REQ from {}: [{}] urgency={} - {}",
+                    sender_name, request.category, request.urgency, request.description
+                ));
+                self.resource_log.push((sender_name, request));
+            }
+            NodeEvent::CheckInReceived { sender_id, sender_name, check_in, .. } => {
+                let status_str = format!("{}: {}", check_in.status, check_in.message);
+                self.push_system(format!("CHECK-IN from {}: {}", sender_name, status_str));
+                // Update safety roster
+                self.safety_roster.retain(|(id, _, _, _)| *id != sender_id);
+                self.safety_roster.push((sender_id, sender_name, check_in.status, Instant::now()));
+            }
+            NodeEvent::DisappearingReceived { sender_name, text, ttl_seconds, .. } => {
+                self.push_chat(format!("[DISAPPEARING] {}", sender_name), text.clone(), false);
+                self.disappearing_msgs.push((sender_name, text, Instant::now(), ttl_seconds));
+            }
+            NodeEvent::HistoryLoaded { .. } => {
+                // History messages could be loaded into the chat view
+            }
             NodeEvent::Nuked => {
                 self.push_system("Identity destroyed. Shutting down.".into());
                 self.should_quit = true;
@@ -295,6 +377,11 @@ impl MeshApp {
 
         if text.starts_with('/') {
             self.handle_slash_command(&text);
+        } else if let Some(group) = &self.active_group {
+            let group = group.clone();
+            self.push_chat(format!("[{}] You", group), text.clone(), false);
+            let h = self.handle.clone();
+            self.spawn_cmd(async move { h.send_group_message(&group, &text).await });
         } else if let Some((dest, name)) = &self.dm_target {
             let dest = *dest;
             let name = name.clone();
@@ -451,20 +538,122 @@ impl MeshApp {
             "/endcall" => {
                 self.end_call();
             }
+            "/group" => {
+                if parts.len() >= 3 {
+                    let subcmd = parts[1].to_lowercase();
+                    let group_name = parts[2].to_string();
+                    match subcmd.as_str() {
+                        "join" => {
+                            self.joined_groups.push(group_name.clone());
+                            self.push_system(format!("Joining group: {}", group_name));
+                            let h = self.handle.clone();
+                            self.spawn_cmd(async move { h.join_group(&group_name).await });
+                        }
+                        "leave" => {
+                            self.joined_groups.retain(|g| g != &group_name);
+                            if self.active_group.as_deref() == Some(&group_name) {
+                                self.active_group = None;
+                            }
+                            self.push_system(format!("Leaving group: {}", group_name));
+                            let h = self.handle.clone();
+                            self.spawn_cmd(async move { h.leave_group(&group_name).await });
+                        }
+                        _ => self.push_system("Usage: /group join|leave <name>".into()),
+                    }
+                } else {
+                    self.push_system("Usage: /group join|leave <name>".into());
+                }
+            }
+            "/triage" => {
+                // /triage <level> <victim-id> <notes>
+                if parts.len() >= 3 {
+                    let level_str = parts[1];
+                    let rest = text.strip_prefix("/triage ").unwrap_or("")
+                        .strip_prefix(level_str).unwrap_or("").trim();
+                    let (victim, notes) = rest.split_once(' ').unwrap_or((rest, ""));
+                    if let Some(level) = TriageLevel::from_str(level_str) {
+                        let payload = TriagePayload {
+                            level,
+                            victim_id: victim.to_string(),
+                            notes: notes.to_string(),
+                            location: None,
+                        };
+                        self.push_system(format!("TRIAGE [{}] victim={}: {}", payload.level.label(), victim, notes));
+                        self.triage_log.push(("You".into(), payload.clone()));
+                        let h = self.handle.clone();
+                        self.spawn_cmd(async move { h.send_triage(payload).await });
+                    } else {
+                        self.push_system("Invalid triage level. Use: black, red, yellow, green".into());
+                    }
+                } else {
+                    self.push_system("Usage: /triage <red|yellow|green|black> <victim-id> <notes>".into());
+                }
+            }
+            "/resource" => {
+                // /resource <category> <urgency> <description>
+                if parts.len() >= 3 {
+                    let cat = parts[1].to_string();
+                    let rest = text.strip_prefix("/resource ").unwrap_or("")
+                        .strip_prefix(&cat).unwrap_or("").trim();
+                    let (urgency_str, desc) = rest.split_once(' ').unwrap_or((rest, ""));
+                    let urgency: u8 = urgency_str.parse().unwrap_or(3);
+                    let payload = ResourceRequestPayload {
+                        category: cat, description: desc.to_string(), urgency, location: None, quantity: 1,
+                    };
+                    self.push_system(format!("RESOURCE REQ [{}] urgency={}: {}", payload.category, urgency, desc));
+                    self.resource_log.push(("You".into(), payload.clone()));
+                    let h = self.handle.clone();
+                    self.spawn_cmd(async move { h.send_resource_request(payload).await });
+                } else {
+                    self.push_system("Usage: /resource <category> <urgency> <description>".into());
+                }
+            }
+            "/checkin" => {
+                let status = if parts.len() >= 2 { parts[1] } else { "ok" };
+                let msg = if parts.len() >= 3 {
+                    text.strip_prefix("/checkin ").unwrap_or("")
+                        .strip_prefix(status).unwrap_or("").trim().to_string()
+                } else { String::new() };
+                let payload = CheckInPayload {
+                    status: status.to_string(), location: None, message: msg,
+                };
+                self.push_system(format!("CHECK-IN: {}", status));
+                let h = self.handle.clone();
+                self.spawn_cmd(async move { h.send_check_in(payload).await });
+            }
+            "/disappear" => {
+                // /disappear <seconds> <message>
+                if parts.len() >= 3 {
+                    let ttl: u32 = parts[1].parse().unwrap_or(30);
+                    let msg = text.strip_prefix("/disappear ").unwrap_or("")
+                        .strip_prefix(parts[1]).unwrap_or("").trim().to_string();
+                    let dest = self.dm_target.as_ref().map(|(id, _)| *id);
+                    self.push_system(format!("Disappearing ({}s): {}", ttl, msg));
+                    let h = self.handle.clone();
+                    self.spawn_cmd(async move { h.send_disappearing(dest, &msg, ttl).await });
+                } else {
+                    self.push_system("Usage: /disappear <seconds> <message>".into());
+                }
+            }
             "/help" => {
                 self.push_system("Commands:".into());
-                self.push_system("  /dm <name> <msg>     - Direct message".into());
-                self.push_system("  /send <peer> <path>  - Send file".into());
-                self.push_system("  /accept              - Accept file offer".into());
-                self.push_system("  /voice <peer> <path> - Send voice file".into());
-                self.push_system("  /call <peer>         - Start voice call".into());
-                self.push_system("  /endcall             - End voice call".into());
-                self.push_system("  /broadcast <msg>     - Public broadcast".into());
-                self.push_system("  /sos <msg>           - Emergency broadcast".into());
-                self.push_system("  /name <name>         - Change display name".into());
-                self.push_system("  /stats               - Show mesh stats".into());
-                self.push_system("  /peers               - Show peer list".into());
-                self.push_system("  /nuke                - Destroy identity & exit".into());
+                self.push_system("  /dm <name> <msg>       - Direct message".into());
+                self.push_system("  /send <peer> <path>    - Send file".into());
+                self.push_system("  /accept                - Accept file offer".into());
+                self.push_system("  /voice <peer> <path>   - Send voice file".into());
+                self.push_system("  /call <peer>           - Start voice call".into());
+                self.push_system("  /endcall               - End voice call".into());
+                self.push_system("  /broadcast <msg>       - Public broadcast".into());
+                self.push_system("  /sos <msg>             - Emergency broadcast".into());
+                self.push_system("  /name <name>           - Change display name".into());
+                self.push_system("  /group join|leave <n>  - Group management".into());
+                self.push_system("  /triage <lvl> <id> <n> - Triage tag".into());
+                self.push_system("  /resource <cat> <u> <d>- Resource request".into());
+                self.push_system("  /checkin [status] [msg]- Safety check-in".into());
+                self.push_system("  /disappear <s> <msg>   - Disappearing message".into());
+                self.push_system("  /stats                 - Show mesh stats".into());
+                self.push_system("  /peers                 - Show peer list".into());
+                self.push_system("  /nuke                  - Destroy identity & exit".into());
             }
             _ => {
                 self.push_system(format!("Unknown command: {}. Type /help", cmd));
@@ -791,6 +980,14 @@ impl eframe::App for MeshApp {
         // Check file picker results
         self.check_file_pick_result();
 
+        // Expire typing indicators (5 second timeout)
+        self.typing_peers.retain(|(_, _, t)| t.elapsed().as_secs() < 5);
+
+        // Expire disappearing messages
+        self.disappearing_msgs.retain(|(_, _, received, ttl)| {
+            received.elapsed().as_secs() < *ttl as u64
+        });
+
         if self.should_quit {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
@@ -837,7 +1034,7 @@ impl eframe::App for MeshApp {
         egui::TopBottomPanel::top("header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Mesh Network").font(FontId::proportional(16.0)).color(ACCENT_CYAN).strong());
+                ui.label(RichText::new("MassKritical").font(FontId::proportional(16.0)).color(ACCENT_CYAN).strong());
                 ui.separator();
                 ui.label(RichText::new(format!("{} ({})", self.display_name, self.node_id_short)).color(TEXT_PRIMARY));
                 ui.separator();
@@ -874,10 +1071,27 @@ impl eframe::App for MeshApp {
         // Tab bar
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // I'm OK button in tab bar area
+                let ok_btn = egui::Button::new(
+                    RichText::new("I'm OK").color(Color32::WHITE).strong()
+                ).fill(ACCENT_GREEN);
+                if ui.add(ok_btn).clicked() {
+                    let payload = CheckInPayload {
+                        status: "ok".to_string(),
+                        location: None,
+                        message: String::new(),
+                    };
+                    self.push_system("CHECK-IN: ok".into());
+                    let h = self.handle.clone();
+                    self.spawn_cmd(async move { h.send_check_in(payload).await });
+                }
+                ui.separator();
+
                 for (tab, label) in [
                     (Tab::Chat, "Chat"),
                     (Tab::Peers, "Peers"),
                     (Tab::Files, "Files"),
+                    (Tab::Emergency, "Emergency"),
                     (Tab::Settings, "Settings"),
                 ] {
                     let selected = self.active_tab == tab;
@@ -907,6 +1121,7 @@ impl eframe::App for MeshApp {
             Tab::Chat => self.draw_chat_tab(ctx),
             Tab::Peers => self.draw_peers_tab(ctx),
             Tab::Files => self.draw_files_tab(ctx),
+            Tab::Emergency => self.draw_emergency_tab(ctx),
             Tab::Settings => self.draw_settings_tab(ctx),
         }
 
@@ -946,6 +1161,17 @@ impl MeshApp {
                     }
                 });
                 ui.separator();
+            }
+
+            // Typing indicator
+            if !self.typing_peers.is_empty() {
+                let names: Vec<String> = self.typing_peers.iter().map(|(_, n, _)| n.clone()).collect();
+                let typing_text = if names.len() == 1 {
+                    format!("{} is typing...", names[0])
+                } else {
+                    format!("{} are typing...", names.join(", "))
+                };
+                ui.label(RichText::new(typing_text).color(TEXT_MUTED).italics().font(FontId::proportional(11.0)));
             }
 
             if let Some(dm_name) = self.dm_target.as_ref().map(|(_, n)| n.clone()) {
@@ -1015,17 +1241,39 @@ impl MeshApp {
             ui.add_space(2.0);
         });
 
-        // Left panel: peer sidebar
+        // Left panel: peer sidebar with groups
         egui::SidePanel::left("peer_sidebar")
             .default_width(180.0)
             .min_width(120.0)
             .frame(egui::Frame::new().fill(BG_SIDEBAR).inner_margin(8.0))
             .show(ctx, |ui| {
+                // Groups section
+                if !self.joined_groups.is_empty() {
+                    ui.label(RichText::new("Groups").color(ACCENT_BLUE).strong());
+                    let groups = self.joined_groups.clone();
+                    for g in &groups {
+                        let selected = self.active_group.as_deref() == Some(g);
+                        let color = if selected { ACCENT_CYAN } else { ACCENT_BLUE };
+                        let btn = ui.add(
+                            egui::Button::new(RichText::new(format!("# {}", g)).color(color).font(FontId::proportional(12.0)))
+                                .fill(if selected { ACCENT_BLUE.linear_multiply(0.15) } else { Color32::TRANSPARENT })
+                                .frame(false),
+                        );
+                        if btn.clicked() {
+                            self.active_group = Some(g.clone());
+                            self.dm_target = None;
+                        }
+                    }
+                    if ui.small_button(RichText::new("Clear group").color(TEXT_MUTED)).clicked() {
+                        self.active_group = None;
+                    }
+                    ui.separator();
+                }
+
                 ui.label(RichText::new("Peers").color(ACCENT_YELLOW).strong());
                 ui.separator();
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Clone the peer data we need before the mutable borrow
                     let peer_data: Vec<([u8; 32], String, bool)> = self.peers.iter()
                         .map(|p| (p.node_id, p.display_name.clone(), p.is_gateway))
                         .collect();
@@ -1044,6 +1292,7 @@ impl MeshApp {
                             );
                             if btn.clicked() {
                                 self.dm_target = Some((*node_id, display_name.clone()));
+                                self.active_group = None;
                             }
                             if btn.hovered() {
                                 ui.painter().rect_stroke(
@@ -1288,6 +1537,151 @@ impl MeshApp {
             });
     }
 
+    fn draw_emergency_tab(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new().fill(BG_DARK).inner_margin(12.0))
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // --- Triage Section ---
+                    ui.label(RichText::new("Triage Tags").color(ACCENT_RED).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(4.0);
+
+                    // Summary
+                    let (mut r, mut y, mut g, mut b) = (0, 0, 0, 0);
+                    for (_, t) in &self.triage_log {
+                        match t.level {
+                            TriageLevel::Red => r += 1,
+                            TriageLevel::Yellow => y += 1,
+                            TriageLevel::Green => g += 1,
+                            TriageLevel::Black => b += 1,
+                        }
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("R:{}", r)).color(ACCENT_RED).strong());
+                        ui.label(RichText::new(format!("Y:{}", y)).color(ACCENT_YELLOW).strong());
+                        ui.label(RichText::new(format!("G:{}", g)).color(ACCENT_GREEN).strong());
+                        ui.label(RichText::new(format!("B:{}", b)).color(TEXT_MUTED).strong());
+                    });
+                    ui.add_space(4.0);
+
+                    // Triage input
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Level:").color(ACCENT_YELLOW));
+                        for (lvl, color) in [("red", ACCENT_RED), ("yellow", ACCENT_YELLOW), ("green", ACCENT_GREEN), ("black", TEXT_MUTED)] {
+                            let selected = self.triage_level == lvl;
+                            let btn = egui::Button::new(RichText::new(lvl.to_uppercase()).color(if selected { BG_DARK } else { color }).strong())
+                                .fill(if selected { color } else { Color32::TRANSPARENT });
+                            if ui.add(btn).clicked() {
+                                self.triage_level = lvl.into();
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Victim ID:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.triage_victim_id).desired_width(100.0));
+                        ui.label(RichText::new("Notes:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.triage_notes).desired_width(200.0));
+                        let send_btn = egui::Button::new(RichText::new("Send Triage").color(Color32::WHITE).strong()).fill(ACCENT_RED);
+                        if ui.add(send_btn).clicked() && !self.triage_victim_id.is_empty() {
+                            if let Some(level) = TriageLevel::from_str(&self.triage_level) {
+                                let payload = TriagePayload {
+                                    level, victim_id: self.triage_victim_id.clone(),
+                                    notes: self.triage_notes.clone(), location: None,
+                                };
+                                self.triage_log.push(("You".into(), payload.clone()));
+                                let h = self.handle.clone();
+                                self.spawn_cmd(async move { h.send_triage(payload).await });
+                                self.triage_victim_id.clear();
+                                self.triage_notes.clear();
+                            }
+                        }
+                    });
+
+                    // Triage log
+                    ui.add_space(4.0);
+                    for (sender, t) in self.triage_log.iter().rev().take(20) {
+                        let color = match t.level {
+                            TriageLevel::Red => ACCENT_RED,
+                            TriageLevel::Yellow => ACCENT_YELLOW,
+                            TriageLevel::Green => ACCENT_GREEN,
+                            TriageLevel::Black => TEXT_MUTED,
+                        };
+                        ui.label(RichText::new(format!(
+                            "[{}] {} - victim:{} - {}", t.level.label(), sender, t.victim_id, t.notes
+                        )).color(color).font(FontId::proportional(12.0)));
+                    }
+
+                    ui.add_space(12.0);
+                    ui.separator();
+
+                    // --- Resource Requests ---
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Resource Requests").color(ACCENT_CYAN).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Category:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.resource_category).desired_width(100.0));
+                        ui.label(RichText::new("Urgency:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.resource_urgency).desired_width(30.0));
+                        ui.label(RichText::new("Desc:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.resource_description).desired_width(200.0));
+                        let send_btn = egui::Button::new(RichText::new("Request").color(Color32::WHITE).strong()).fill(ACCENT_BLUE);
+                        if ui.add(send_btn).clicked() && !self.resource_description.is_empty() {
+                            let urgency: u8 = self.resource_urgency.parse().unwrap_or(3);
+                            let payload = ResourceRequestPayload {
+                                category: self.resource_category.clone(),
+                                description: self.resource_description.clone(),
+                                urgency, location: None, quantity: 1,
+                            };
+                            self.resource_log.push(("You".into(), payload.clone()));
+                            let h = self.handle.clone();
+                            self.spawn_cmd(async move { h.send_resource_request(payload).await });
+                            self.resource_description.clear();
+                        }
+                    });
+
+                    for (sender, r) in self.resource_log.iter().rev().take(20) {
+                        let urgency_color = match r.urgency {
+                            5 => ACCENT_RED, 4 => ACCENT_MAGENTA, 3 => ACCENT_YELLOW,
+                            _ => ACCENT_GREEN,
+                        };
+                        ui.label(RichText::new(format!(
+                            "[{} U:{}] {} - {}", r.category, r.urgency, sender, r.description
+                        )).color(urgency_color).font(FontId::proportional(12.0)));
+                    }
+
+                    ui.add_space(12.0);
+                    ui.separator();
+
+                    // --- Safety Roster ---
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Safety Roster").color(ACCENT_GREEN).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(4.0);
+
+                    if self.safety_roster.is_empty() {
+                        ui.label(RichText::new("No check-ins received yet").color(TEXT_MUTED).italics());
+                    }
+                    for (_, name, status, time) in &self.safety_roster {
+                        let age_secs = time.elapsed().as_secs();
+                        let color = match status.as_str() {
+                            "ok" if age_secs < 3600 => ACCENT_GREEN,
+                            "ok" => ACCENT_YELLOW,
+                            "need_help" => ACCENT_RED,
+                            "evacuating" => ACCENT_MAGENTA,
+                            _ => TEXT_MUTED,
+                        };
+                        let age_str = if age_secs < 60 { format!("{}s ago", age_secs) }
+                            else if age_secs < 3600 { format!("{}m ago", age_secs / 60) }
+                            else { format!("{}h ago", age_secs / 3600) };
+                        ui.label(RichText::new(format!(
+                            "{}: {} ({})", name, status, age_str
+                        )).color(color).font(FontId::proportional(12.0)));
+                    }
+                });
+            });
+    }
+
     fn draw_settings_tab(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG_DARK).inner_margin(12.0))
@@ -1429,6 +1823,79 @@ impl MeshApp {
                         let h = self.handle.clone();
                         self.spawn_cmd(async move { h.get_stats().await });
                     }
+
+                    ui.add_space(16.0);
+                    ui.separator();
+
+                    // --- Groups Section ---
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Groups").color(ACCENT_CYAN).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(8.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Join group:").color(ACCENT_YELLOW));
+                        ui.add(egui::TextEdit::singleline(&mut self.group_join_input)
+                            .desired_width(150.0)
+                            .hint_text("group name"));
+                        if ui.button(RichText::new("Join").color(ACCENT_GREEN)).clicked() && !self.group_join_input.is_empty() {
+                            let name = self.group_join_input.clone();
+                            self.joined_groups.push(name.clone());
+                            self.group_join_input.clear();
+                            let h = self.handle.clone();
+                            self.spawn_cmd(async move { h.join_group(&name).await });
+                        }
+                    });
+
+                    let groups_snapshot = self.joined_groups.clone();
+                    for g in &groups_snapshot {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("# {}", g)).color(ACCENT_BLUE));
+                            if ui.small_button(RichText::new("Leave").color(ACCENT_RED)).clicked() {
+                                self.joined_groups.retain(|x| x != g);
+                                if self.active_group.as_deref() == Some(g) {
+                                    self.active_group = None;
+                                }
+                                let name = g.clone();
+                                let h = self.handle.clone();
+                                self.spawn_cmd(async move { h.leave_group(&name).await });
+                            }
+                        });
+                    }
+
+                    if groups_snapshot.is_empty() {
+                        ui.label(RichText::new("Not in any groups").color(TEXT_MUTED).italics());
+                    }
+
+                    ui.add_space(16.0);
+                    ui.separator();
+
+                    // --- Key Verification ---
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Key Verification").color(ACCENT_CYAN).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(8.0);
+
+                    let peer_data_for_verify: Vec<([u8; 32], String)> = self.peers.iter()
+                        .map(|p| (p.node_id, p.display_name.clone()))
+                        .collect();
+                    for (peer_id, peer_name) in &peer_data_for_verify {
+                        let safety = NodeIdentity::safety_number(&self.our_node_id, peer_id);
+                        ui.collapsing(RichText::new(format!("Verify: {}", peer_name)).color(ACCENT_YELLOW), |ui| {
+                            ui.label(RichText::new(&safety).color(TEXT_PRIMARY).font(FontId::monospace(12.0)));
+                        });
+                    }
+
+                    if peer_data_for_verify.is_empty() {
+                        ui.label(RichText::new("No peers to verify").color(TEXT_MUTED).italics());
+                    }
+
+                    ui.add_space(16.0);
+                    ui.separator();
+
+                    // --- Notifications ---
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("Notifications").color(ACCENT_CYAN).strong().font(FontId::proportional(16.0)));
+                    ui.add_space(8.0);
+                    ui.checkbox(&mut self.notifications_muted, RichText::new("Mute notifications").color(TEXT_PRIMARY));
 
                     ui.add_space(16.0);
                     ui.separator();
@@ -1612,6 +2079,7 @@ fn main() -> Result<()> {
             display_name: name.clone(),
             listen_port: port,
             key_path: std::path::PathBuf::from(format!("mesh_identity_{}.key", port)),
+            data_dir: None,
         };
         start_mesh_node(config).await
     })?;
@@ -1640,6 +2108,8 @@ fn main() -> Result<()> {
             }
         }
     });
+
+    let our_node_id = identity.node_id;
 
     let app = MeshApp {
         display_name: name.clone(),
@@ -1671,21 +2141,57 @@ fn main() -> Result<()> {
         call_output_stream: None,
         call_playback_buffer: Arc::new(StdMutex::new(VecDeque::new())),
         file_pick_rx: None,
+        joined_groups: Vec::new(),
+        active_group: None,
+        group_join_input: String::new(),
+        typing_peers: Vec::new(),
+        _typing_sent: false,
+        _last_typed: None,
+        triage_log: Vec::new(),
+        resource_log: Vec::new(),
+        safety_roster: Vec::new(),
+        disappearing_msgs: Vec::new(),
+        triage_victim_id: String::new(),
+        triage_notes: String::new(),
+        triage_level: "red".into(),
+        resource_category: "medical".into(),
+        resource_description: String::new(),
+        resource_urgency: "3".into(),
+        notifications_muted: false,
+        our_node_id,
         handle,
         rt,
         bridge_rx,
     };
 
+    // Load window icon from embedded ICO
+    let icon = {
+        let icon_bytes = include_bytes!("../../design/logo1.png");
+        match image::load_from_memory_with_format(icon_bytes, image::ImageFormat::Png) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = (rgba.width(), rgba.height());
+                Some(egui::IconData { rgba: rgba.into_raw(), width: w, height: h })
+            }
+            Err(_) => None,
+        }
+    };
+
+    let mut vp = egui::ViewportBuilder::default()
+        .with_title(format!("MassKritical - {}", name))
+        .with_inner_size([900.0, 640.0])
+        .with_min_inner_size([600.0, 400.0]);
+    if let Some(icon_data) = icon {
+        vp = vp.with_icon(Arc::new(icon_data));
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(format!("Mesh Network - {}", name))
-            .with_inner_size([900.0, 640.0])
-            .with_min_inner_size([600.0, 400.0]),
+        viewport: vp,
         ..Default::default()
     };
 
     eframe::run_native(
-        "Mesh Network",
+        "MassKritical",
         options,
         Box::new(move |cc| {
             if let Ok(mut guard) = egui_ctx.lock() {

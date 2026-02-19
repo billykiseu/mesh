@@ -13,7 +13,8 @@ use crate::gateway;
 use crate::identity::NodeIdentity;
 use crate::message::*;
 use crate::peer::{PeerManager, PeerState};
-use crate::router::Router;
+use crate::router::{Router, RoutingTable};
+use crate::storage::{MeshStorage, StoredMessage, Contact};
 use crate::transport::{TcpTransport, IncomingMessage, InboundConnection};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
@@ -133,6 +134,23 @@ pub enum NodeEvent {
         text: String,
         location: Option<(f64, f64)>,
     },
+    // Read receipts
+    MessageDelivered { msg_id: [u8; 32], by_peer: [u8; 32] },
+    // Typing
+    TypingStarted { peer: [u8; 32], peer_name: String },
+    TypingStopped { peer: [u8; 32] },
+    // Groups
+    GroupMessageReceived { group: String, sender_id: [u8; 32], sender_name: String, content: String },
+    GroupJoined { group: String, peer: [u8; 32], peer_name: String },
+    GroupLeft { group: String, peer: [u8; 32] },
+    // Emergency
+    TriageReceived { sender_id: [u8; 32], sender_name: String, triage: TriagePayload },
+    ResourceRequestReceived { sender_id: [u8; 32], sender_name: String, request: ResourceRequestPayload },
+    CheckInReceived { sender_id: [u8; 32], sender_name: String, check_in: CheckInPayload },
+    // Disappearing
+    DisappearingReceived { sender_id: [u8; 32], sender_name: String, text: String, ttl_seconds: u32 },
+    // History
+    HistoryLoaded { messages: Vec<StoredMessage> },
     // Lifecycle
     Nuked,
     Stopped,
@@ -143,14 +161,16 @@ pub struct NodeConfig {
     pub display_name: String,
     pub listen_port: u16,
     pub key_path: PathBuf,
+    pub data_dir: Option<PathBuf>,
 }
 
 impl Default for NodeConfig {
     fn default() -> Self {
         Self {
-            display_name: "MeshNode".into(),
+            display_name: "MassKritical".into(),
             listen_port: TCP_PORT,
             key_path: PathBuf::from("mesh_identity.key"),
+            data_dir: None,
         }
     }
 }
@@ -173,6 +193,25 @@ pub enum NodeCommand {
     // Public broadcast / SOS
     SendPublicBroadcast { text: String },
     SendSOS { text: String, location: Option<(f64, f64)> },
+    // Read receipts
+    SendReadReceipt { dest: [u8; 32], original_msg_id: [u8; 32] },
+    // Typing
+    SendTypingStart { dest: Option<[u8; 32]> },
+    SendTypingStop { dest: Option<[u8; 32]> },
+    // Groups
+    JoinGroup { group_name: String },
+    LeaveGroup { group_name: String },
+    SendGroupMessage { group_name: String, text: String },
+    // Emergency
+    SendTriage { triage: TriagePayload },
+    SendResourceRequest { request: ResourceRequestPayload },
+    SendCheckIn { check_in: CheckInPayload },
+    // Disappearing
+    SendDisappearing { dest: Option<[u8; 32]>, text: String, ttl_seconds: u32 },
+    // History
+    LoadHistory { peer: Option<[u8; 32]>, group: Option<String> },
+    // Contacts
+    SetNickname { node_id: [u8; 32], nickname: String },
     // Admin
     Nuke,
     Shutdown,
@@ -272,6 +311,70 @@ impl NodeHandle {
             .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
     }
 
+    pub async fn send_read_receipt(&self, dest: [u8; 32], original_msg_id: [u8; 32]) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendReadReceipt { dest, original_msg_id })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_typing_start(&self, dest: Option<[u8; 32]>) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendTypingStart { dest })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_typing_stop(&self, dest: Option<[u8; 32]>) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendTypingStop { dest })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn join_group(&self, group_name: &str) -> Result<()> {
+        self.command_tx.send(NodeCommand::JoinGroup { group_name: group_name.to_string() })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn leave_group(&self, group_name: &str) -> Result<()> {
+        self.command_tx.send(NodeCommand::LeaveGroup { group_name: group_name.to_string() })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_group_message(&self, group_name: &str, text: &str) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendGroupMessage {
+            group_name: group_name.to_string(),
+            text: text.to_string(),
+        }).await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_triage(&self, triage: TriagePayload) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendTriage { triage })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_resource_request(&self, request: ResourceRequestPayload) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendResourceRequest { request })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_check_in(&self, check_in: CheckInPayload) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendCheckIn { check_in })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn send_disappearing(&self, dest: Option<[u8; 32]>, text: &str, ttl_seconds: u32) -> Result<()> {
+        self.command_tx.send(NodeCommand::SendDisappearing {
+            dest, text: text.to_string(), ttl_seconds,
+        }).await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn load_history(&self, peer: Option<[u8; 32]>, group: Option<String>) -> Result<()> {
+        self.command_tx.send(NodeCommand::LoadHistory { peer, group })
+            .await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
+    pub async fn set_nickname(&self, node_id: [u8; 32], nickname: &str) -> Result<()> {
+        self.command_tx.send(NodeCommand::SetNickname {
+            node_id, nickname: nickname.to_string(),
+        }).await.map_err(|_| anyhow::anyhow!("Node command channel closed"))
+    }
+
     /// Raw command send for FFI/custom commands.
     pub async fn send_command(&self, cmd: NodeCommand) -> Result<()> {
         self.command_tx.send(cmd)
@@ -314,8 +417,20 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
     // X25519 keypair
     let (x25519_secret, x25519_public) = generate_x25519_keypair();
 
+    // Storage
+    let data_dir = config.data_dir.clone().unwrap_or_else(|| {
+        config.key_path.parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .to_path_buf()
+    });
+    let storage = MeshStorage::open(&data_dir).ok();
+    if storage.is_none() {
+        warn!("Failed to open storage, persistence disabled");
+    }
+
     let our_node_id = identity.node_id;
     let _our_display_name = identity.display_name.clone();
+    let _identity_clone = identity.clone();
     let key_path = config.key_path.clone();
     let save_dir = config.key_path.parent()
         .unwrap_or_else(|| std::path::Path::new("."))
@@ -343,6 +458,25 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
 
         // Track write senders from inbound TCP connections
         let mut inbound_senders: HashMap<SocketAddr, mpsc::Sender<MeshMessage>> = HashMap::new();
+
+        // Group state
+        let mut joined_groups: HashSet<String> = HashSet::new();
+        if let Some(ref st) = storage {
+            if let Ok(groups) = st.get_groups() {
+                for g in groups {
+                    joined_groups.insert(g);
+                }
+            }
+        }
+
+        // Offline message queue
+        let mut offline_queue: HashMap<[u8; 32], Vec<MeshMessage>> = HashMap::new();
+
+        // Routing table
+        let mut routing_table = RoutingTable::new();
+
+        // Disappearing message cleanup timer
+        let mut cleanup_timer = tokio::time::interval(Duration::from_secs(30));
 
         loop {
             tokio::select! {
@@ -452,6 +586,93 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
                                 let _ = sender.send(msg.clone()).await;
                             }
                         }
+                        NodeCommand::SendReadReceipt { dest, original_msg_id } => {
+                            let msg = MeshMessage::read_receipt(our_node_id, dest, original_msg_id);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendTypingStart { dest } => {
+                            let msg = MeshMessage::typing_start(our_node_id, dest);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendTypingStop { dest } => {
+                            let msg = MeshMessage::typing_stop(our_node_id, dest);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::JoinGroup { group_name } => {
+                            joined_groups.insert(group_name.clone());
+                            if let Some(ref st) = storage {
+                                let _ = st.join_group(&group_name);
+                            }
+                            let msg = MeshMessage::group_join(our_node_id, &group_name);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                            info!("Joined group: {}", group_name);
+                        }
+                        NodeCommand::LeaveGroup { group_name } => {
+                            joined_groups.remove(&group_name);
+                            if let Some(ref st) = storage {
+                                let _ = st.leave_group(&group_name);
+                            }
+                            let msg = MeshMessage::group_leave(our_node_id, &group_name);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                            info!("Left group: {}", group_name);
+                        }
+                        NodeCommand::SendGroupMessage { group_name, text } => {
+                            let msg = MeshMessage::group_message(our_node_id, &group_name, &text);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendTriage { triage } => {
+                            let msg = MeshMessage::triage(our_node_id, &triage);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendResourceRequest { request } => {
+                            let msg = MeshMessage::resource_request(our_node_id, &request);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendCheckIn { check_in } => {
+                            let msg = MeshMessage::check_in(our_node_id, &check_in);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::SendDisappearing { dest, text, ttl_seconds } => {
+                            let msg = MeshMessage::disappearing(our_node_id, dest, &text, ttl_seconds);
+                            for (_, sender) in peers.broadcast_senders() {
+                                let _ = sender.send(msg.clone()).await;
+                            }
+                        }
+                        NodeCommand::LoadHistory { peer, group } => {
+                            if let Some(ref st) = storage {
+                                let messages = if let Some(ref g) = group {
+                                    st.get_group_history(g, 100).unwrap_or_default()
+                                } else if let Some(ref p) = peer {
+                                    st.get_dm_history(p, 100).unwrap_or_default()
+                                } else {
+                                    st.get_messages(100, None).unwrap_or_default()
+                                };
+                                let _ = event_tx.send(NodeEvent::HistoryLoaded { messages }).await;
+                            }
+                        }
+                        NodeCommand::SetNickname { node_id, nickname } => {
+                            if let Some(ref st) = storage {
+                                let _ = st.set_nickname(&node_id, &nickname);
+                            }
+                        }
                         NodeCommand::GetStats => {
                             let rs = &router.stats;
                             let (ifaces, active_iface) = gateway::detect_interfaces();
@@ -549,12 +770,38 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
                                 display_name: discovered.display_name.clone(),
                             }).await;
 
+                            let disc_name = discovered.display_name.clone();
+
                             if discovered.has_internet {
                                 let _ = event_tx.send(NodeEvent::GatewayFound {
                                     node_id: discovered.node_id,
                                     display_name: discovered.display_name,
                                 }).await;
                                 known_gateways.insert(discovered.node_id);
+                            }
+
+                            // Deliver queued offline messages
+                            if let Some(queued) = offline_queue.remove(&discovered.node_id) {
+                                for qmsg in queued {
+                                    let _ = sender.send(qmsg).await;
+                                }
+                                info!("Delivered offline queue to {}", hex::encode(&discovered.node_id[..4]));
+                            }
+
+                            // Save as contact
+                            if let Some(ref st) = storage {
+                                let now = chrono::Utc::now().timestamp_millis();
+                                let contact = Contact {
+                                    node_id: discovered.node_id,
+                                    display_name: disc_name,
+                                    nickname: None,
+                                    bio: String::new(),
+                                    first_seen: now,
+                                    last_seen: now,
+                                    is_favorite: false,
+                                    safety_number: None,
+                                };
+                                let _ = st.save_contact(&contact);
                             }
                         }
                         Err(e) => {
@@ -762,6 +1009,94 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
                                     }).await;
                                 }
                             }
+                            MessageType::ReadReceipt => {
+                                if let Ok(rr) = bincode::deserialize::<ReadReceiptPayload>(&msg.payload) {
+                                    if let Some(ref st) = storage {
+                                        let _ = st.mark_delivered(&rr.original_msg_id);
+                                    }
+                                    let _ = event_tx.send(NodeEvent::MessageDelivered {
+                                        msg_id: rr.original_msg_id,
+                                        by_peer: msg.sender_id,
+                                    }).await;
+                                }
+                            }
+                            MessageType::TypingStart => {
+                                let _ = event_tx.send(NodeEvent::TypingStarted {
+                                    peer: msg.sender_id,
+                                    peer_name: sender_name,
+                                }).await;
+                            }
+                            MessageType::TypingStop => {
+                                let _ = event_tx.send(NodeEvent::TypingStopped {
+                                    peer: msg.sender_id,
+                                }).await;
+                            }
+                            MessageType::GroupMessage => {
+                                if let Ok(gp) = bincode::deserialize::<GroupPayload>(&msg.payload) {
+                                    if joined_groups.contains(&gp.group_name) {
+                                        let _ = event_tx.send(NodeEvent::GroupMessageReceived {
+                                            group: gp.group_name,
+                                            sender_id: msg.sender_id,
+                                            sender_name,
+                                            content: gp.content,
+                                        }).await;
+                                    }
+                                }
+                            }
+                            MessageType::GroupJoin => {
+                                if let Ok(gc) = bincode::deserialize::<GroupControlPayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::GroupJoined {
+                                        group: gc.group_name,
+                                        peer: msg.sender_id,
+                                        peer_name: sender_name,
+                                    }).await;
+                                }
+                            }
+                            MessageType::GroupLeave => {
+                                if let Ok(gc) = bincode::deserialize::<GroupControlPayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::GroupLeft {
+                                        group: gc.group_name,
+                                        peer: msg.sender_id,
+                                    }).await;
+                                }
+                            }
+                            MessageType::Triage => {
+                                if let Ok(t) = bincode::deserialize::<TriagePayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::TriageReceived {
+                                        sender_id: msg.sender_id,
+                                        sender_name,
+                                        triage: t,
+                                    }).await;
+                                }
+                            }
+                            MessageType::ResourceReq => {
+                                if let Ok(r) = bincode::deserialize::<ResourceRequestPayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::ResourceRequestReceived {
+                                        sender_id: msg.sender_id,
+                                        sender_name,
+                                        request: r,
+                                    }).await;
+                                }
+                            }
+                            MessageType::CheckIn => {
+                                if let Ok(ci) = bincode::deserialize::<CheckInPayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::CheckInReceived {
+                                        sender_id: msg.sender_id,
+                                        sender_name,
+                                        check_in: ci,
+                                    }).await;
+                                }
+                            }
+                            MessageType::Disappearing => {
+                                if let Ok(dp) = bincode::deserialize::<DisappearingPayload>(&msg.payload) {
+                                    let _ = event_tx.send(NodeEvent::DisappearingReceived {
+                                        sender_id: msg.sender_id,
+                                        sender_name,
+                                        text: dp.text,
+                                        ttl_seconds: dp.ttl_seconds,
+                                    }).await;
+                                }
+                            }
                             _ => {} // Discovery, Ping, Pong, PeerExchange handled above
                         }
                     }
@@ -814,6 +1149,25 @@ pub async fn start_mesh_node(config: NodeConfig) -> Result<(NodeIdentity, NodeHa
                     let _current = gateway::check_internet();
                     // Note: updating discovery payload would require restarting discovery service
                     // For now we just track peer gateways from their discovery broadcasts
+                }
+
+                // ---------------------------------------------------------------
+                // Disappearing message cleanup + routing table cleanup
+                // ---------------------------------------------------------------
+                _ = cleanup_timer.tick() => {
+                    if let Some(ref st) = storage {
+                        let deleted = st.delete_expired().unwrap_or(0);
+                        if deleted > 0 {
+                            debug!("Cleaned up {} expired messages", deleted);
+                        }
+                    }
+                    routing_table.cleanup();
+
+                    // Expire old offline queue entries (>1hr)
+                    offline_queue.retain(|_, msgs| {
+                        msgs.retain(|_| true); // Keep for now; could add timestamps
+                        !msgs.is_empty()
+                    });
                 }
 
                 // ---------------------------------------------------------------

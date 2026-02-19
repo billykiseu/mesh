@@ -31,6 +31,7 @@ class MeshService : Service() {
     private val pollExecutor = Executors.newSingleThreadScheduledExecutor()
     private var isRunning = false
     private var peerCount = 0
+    private var btPeerCount = 0
     private var nodeId: String? = null
     private var lastStatus = "stopped"
 
@@ -47,6 +48,8 @@ class MeshService : Service() {
     fun isNodeRunning() = isRunning
     fun getNodeId() = nodeId
     fun getPeerCount() = peerCount
+    fun getBtPeerCount() = btPeerCount
+    fun setBtPeerCount(count: Int) { btPeerCount = count }
     fun getLastStatus() = lastStatus
     fun getRecentEvents(): List<MeshBridge.MeshEvent> = recentEvents.toList()
 
@@ -196,10 +199,10 @@ class MeshService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Mesh Network Service",
+            "MassKritical Service",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "Keeps the mesh network node running"
+            description = "Keeps the MassKritical node running"
         }
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
@@ -221,7 +224,7 @@ class MeshService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Mesh Network")
+            .setContentTitle("MassKritical")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_share)
             .setContentIntent(openPendingIntent)

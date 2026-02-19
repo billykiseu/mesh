@@ -79,5 +79,24 @@ object MeshBridge {
         val longitude get() = float2
     }
 
+    // --- Read Receipts / Typing ---
+    external fun meshSendReadReceipt(destHex: String, msgIdHex: String): Int
+    external fun meshSendTypingStart(destHex: String?): Int
+    external fun meshSendTypingStop(destHex: String?): Int
+
+    // --- Groups ---
+    external fun meshJoinGroup(groupName: String): Int
+    external fun meshLeaveGroup(groupName: String): Int
+    external fun meshSendGroupMessage(groupName: String, text: String): Int
+
+    // --- Triage / Resources / Check-In ---
+    external fun meshSendTriage(level: Int, victimId: String, notes: String, lat: Double, lon: Double): Int
+    external fun meshSendResourceRequest(category: String, description: String, urgency: Int, lat: Double, lon: Double, quantity: Int): Int
+    external fun meshSendCheckIn(status: String, lat: Double, lon: Double, message: String): Int
+
+    // --- Disappearing Messages / History ---
+    external fun meshSendDisappearing(destHex: String?, text: String, ttlSeconds: Int): Int
+    external fun meshLoadHistory(peerHex: String?, groupName: String?): Int
+
     external fun meshPollEvent(): MeshEvent?
 }

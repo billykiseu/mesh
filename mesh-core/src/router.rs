@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::message::{MeshMessage, MessageId, MessageType};
@@ -109,6 +109,10 @@ impl Router {
             MessageType::Voice => 10,
             MessageType::VoiceStream | MessageType::CallStart | MessageType::CallEnd => 2,
             MessageType::FileOffer | MessageType::FileChunk | MessageType::FileAccept => 10,
+            MessageType::ReadReceipt | MessageType::GroupMessage | MessageType::Disappearing => 10,
+            MessageType::TypingStart | MessageType::TypingStop => 1,
+            MessageType::CheckIn | MessageType::Triage | MessageType::ResourceReq => 50,
+            MessageType::GroupJoin | MessageType::GroupLeave => 10,
             _ => return, // Don't track hops for Discovery/Ping/Pong
         };
 
@@ -172,6 +176,61 @@ impl Router {
 
     pub fn seen_count(&self) -> usize {
         self.seen.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Routing table for smarter multi-hop directed messages
+// ---------------------------------------------------------------------------
+
+const ROUTE_EXPIRY: Duration = Duration::from_secs(120);
+
+struct RouteEntry {
+    next_hop: [u8; 32],
+    hop_count: u8,
+    last_updated: Instant,
+}
+
+/// Routing table: tracks best next-hop for each known destination.
+pub struct RoutingTable {
+    routes: HashMap<[u8; 32], RouteEntry>,
+}
+
+impl RoutingTable {
+    pub fn new() -> Self {
+        Self { routes: HashMap::new() }
+    }
+
+    /// Update routing table with information from a received message.
+    /// The sender is `via` (direct peer), the message originated from `origin` with `hop_count` hops.
+    pub fn update_route(&mut self, origin: [u8; 32], via: [u8; 32], hop_count: u8) {
+        let entry = self.routes.entry(origin).or_insert(RouteEntry {
+            next_hop: via,
+            hop_count,
+            last_updated: Instant::now(),
+        });
+        // Update if shorter path or same path refreshed
+        if hop_count <= entry.hop_count || entry.last_updated.elapsed() > ROUTE_EXPIRY {
+            entry.next_hop = via;
+            entry.hop_count = hop_count;
+            entry.last_updated = Instant::now();
+        }
+    }
+
+    /// Look up the best next hop for a destination.
+    pub fn lookup(&self, dest: &[u8; 32]) -> Option<[u8; 32]> {
+        self.routes.get(dest).and_then(|e| {
+            if e.last_updated.elapsed() < ROUTE_EXPIRY {
+                Some(e.next_hop)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Remove expired routes.
+    pub fn cleanup(&mut self) {
+        self.routes.retain(|_, e| e.last_updated.elapsed() < ROUTE_EXPIRY);
     }
 }
 

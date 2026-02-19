@@ -1,6 +1,6 @@
-# Mesh Network
+# MassKritical
 
-A peer-to-peer mesh networking system that works without internet infrastructure. Nodes discover each other over the local network, establish encrypted connections, and relay messages through the mesh. Runs on Windows (desktop GUI) and Android (mobile app).
+A peer-to-peer mesh networking system built for disaster recovery and emergency response. Nodes discover each other over the local network, establish encrypted connections, and relay messages through the mesh. Runs on Windows (desktop GUI) and Android (mobile app).
 
 No servers. No accounts. No tracking. Just direct, encrypted communication between devices.
 

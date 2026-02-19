@@ -53,3 +53,9 @@ i would wanna mask the app as if ts for disaster recovery, so that we dnt run in
 rebrand the app, with a logos and color scheme. 
 
 maybe a couple of features that are like medical aid/disater area focued to hide behind 
+
+lets proceed now that my limit has rest, and also the brand name is not mass action its intead MassKritical, i like that better, update the plan,
+and also i have done logos, lok iside the dir design/logo1.png and logo1.ico to be used where you deem ecessary
+
+
+bundle files, ie apk, and installer for windows2
