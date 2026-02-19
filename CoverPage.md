@@ -10,10 +10,19 @@
  Documentation in readme.md
  and quick build in build.md
 
-
 1.  bare minimum, build, send and recieve text ---------done
-2.  expand features: peer discover, file sharing, Voice notes, calling, beetr UI for the desktop -----done
-3.  final set of major features, clean up system, validate, bluetooth, featire enhancemensts ar below-------progress
+2.  expand features: peer discover, file sharing, Voice notes, calling, better UI for the desktop -----done
+
+Communication
+Direct messages -- encrypted 1-to-1 text between peers
+Broadcast messages -- text to all nodes in the mesh
+Public broadcasts -- high-TTL messages that reach further (TTL 50 vs default 10)
+SOS emergency broadcasts -- priority messages with optional GPS coordinates
+Voice notes -- record and send PCM audio clips (16kHz, 16-bit, mono)
+Voice calls -- real-time bidirectional audio streaming (20ms frames, 50fps)
+File Transfer---Chunked file transfer -- any file type, up to 100MB,
+
+3.  final set of major features, clean up system, validate, bluetooth, feature enhancements are below-------progress
 
 #Phase 3 Things to do 
  High value, realistic scope:                                                                                                                                                              - Bluetooth transport -- mesh works without WiFi, two phones in a field                                                                                                                 
