@@ -249,135 +249,276 @@ Launch --> OnboardingActivity (first run only, 4-page tutorial)
 
 ---
 
-## Build Instructions
+## Build Instructions (Windows)
+
+All commands below are for **Windows** using PowerShell or the VS Code integrated terminal. If you use Git Bash (comes with Git for Windows), the commands are the same but paths use forward slashes.
 
 ### Prerequisites
 
-- **Rust** (1.70+): https://rustup.rs
-- **Android SDK** with NDK (for Android builds)
-- **cargo-ndk** (for Android cross-compilation)
+You need the following installed before you can build anything. Here's exactly what to install and how.
 
-```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#### 1. Git
 
-# Add Android targets (only needed for Android builds)
+Download and install from https://git-scm.com/download/win
+
+Run the installer with defaults. This also gives you **Git Bash** which is useful for running shell scripts.
+
+Verify:
+```powershell
+git --version
+```
+
+#### 2. Visual Studio C++ Build Tools
+
+Rust on Windows compiles against the MSVC toolchain. You need the C++ build tools (not the full Visual Studio IDE).
+
+1. Download **Visual Studio Build Tools** from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run the installer
+3. Select **"Desktop development with C++"** workload
+4. Click Install (downloads ~2-3GB)
+
+This provides `cl.exe`, `link.exe`, and the Windows SDK headers that Rust and cpal need.
+
+#### 3. Rust
+
+1. Download `rustup-init.exe` from https://rustup.rs
+2. Run it -- accept all defaults (installs to `%USERPROFILE%\.cargo`)
+3. Close and reopen your terminal so `cargo` is on PATH
+
+Verify:
+```powershell
+rustc --version
+cargo --version
+```
+
+#### 4. Android SDK + NDK (only needed for Android builds)
+
+The easiest way is to install **Android Studio** which bundles everything:
+
+1. Download from https://developer.android.com/studio
+2. Run the installer with defaults
+3. On first launch, let it download the SDK (installs to `%LOCALAPPDATA%\Android\Sdk`)
+4. Open **SDK Manager** (Settings > Android SDK) and install:
+   - Under **SDK Platforms**: Android 14 (API 34)
+   - Under **SDK Tools**: check **NDK (Side by side)** and **Android SDK Build-Tools**
+5. Set the environment variable so Gradle and cargo-ndk can find it:
+
+```powershell
+# Add to your system environment variables (System Properties > Environment Variables)
+# Variable: ANDROID_HOME
+# Value:    C:\Users\<YourUsername>\AppData\Local\Android\Sdk
+
+# Or set it temporarily in PowerShell:
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+```
+
+If you don't want the full Android Studio IDE, you can download just the **command-line tools** from the same page (scroll to bottom), but Android Studio is easier.
+
+#### 5. Rust Android Targets + cargo-ndk (only needed for Android builds)
+
+Open a terminal and run:
+```powershell
 rustup target add aarch64-linux-android x86_64-linux-android
-
-# Install cargo-ndk (only needed for Android builds)
 cargo install cargo-ndk
 ```
 
-### Desktop (Windows)
+#### 6. Java JDK 17 (only needed for Android builds)
 
-```bash
-# Debug build
+Android Gradle requires JDK 17. Android Studio bundles one, but if Gradle can't find it:
+
+1. Download from https://adoptium.net/temurin/releases/ (pick JDK 17, Windows, x64, .msi)
+2. Install it
+3. Set `JAVA_HOME`:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.x.x-hotspot"
+```
+
+Android Studio's bundled JDK is at `C:\Program Files\Android\Android Studio\jbr` -- you can use that too.
+
+#### Summary: What You Need
+
+| Tool | Required For | Install From |
+|------|-------------|-------------|
+| Git | Cloning the repo | https://git-scm.com/download/win |
+| VS C++ Build Tools | Compiling Rust on Windows | https://visualstudio.microsoft.com/visual-cpp-build-tools/ |
+| Rust (rustup) | All Rust compilation | https://rustup.rs |
+| Android Studio | Android SDK, NDK, emulator | https://developer.android.com/studio |
+| cargo-ndk | Cross-compiling Rust for Android | `cargo install cargo-ndk` |
+| JDK 17 | Android Gradle builds | https://adoptium.net or bundled with Android Studio |
+
+For **desktop-only** builds, you only need Git, VS C++ Build Tools, and Rust.
+
+---
+
+### Clone and Build
+
+```powershell
+git clone <your-repo-url>
+cd Mesh
+```
+
+### Desktop Build (Windows)
+
+```powershell
+# Debug build (fast compile, slow runtime, ~15MB)
 cargo build -p mesh-node
 
-# Release build (optimized, stripped, ~5.8MB)
+# Release build (slow compile, optimized + stripped, ~5.8MB)
 cargo build --release -p mesh-node
-
-# Run
-./target/release/mesh-node.exe [display_name] [port]
-
-# Examples
-./target/release/mesh-node.exe                    # Auto-name, port 7332
-./target/release/mesh-node.exe alice              # Name: alice, port 7332
-./target/release/mesh-node.exe alice 7333         # Name: alice, port 7333
 ```
 
-To test locally with two nodes, open two terminals:
-```bash
-./target/release/mesh-node.exe alice 7332
-./target/release/mesh-node.exe bob 7333
+The output binary is at:
+```
+target\release\mesh-node.exe
 ```
 
-### Android
+Run it:
+```powershell
+# Default name and port
+.\target\release\mesh-node.exe
 
-#### Quick Build (debug APK)
+# Custom display name
+.\target\release\mesh-node.exe alice
 
-```bash
-# From the workspace root
-./build-android.sh
-
-# APK output: mesh-android/app/build/outputs/apk/debug/app-debug.apk
+# Custom name and port
+.\target\release\mesh-node.exe alice 7333
 ```
 
-#### Release Build
+To test locally with two nodes, open two separate terminals:
+```powershell
+# Terminal 1
+.\target\release\mesh-node.exe alice 7332
 
-```bash
+# Terminal 2
+.\target\release\mesh-node.exe bob 7333
+```
+
+Windows Firewall will prompt you to allow network access the first time -- click **Allow**.
+
+### Android Build
+
+#### Debug APK (quick, no signing needed)
+
+```powershell
 cd mesh-android
-
-# Build release APK (includes cargo-ndk cross-compilation)
-./gradlew assembleRelease
-
-# APK output: app/build/outputs/apk/release/app-release-unsigned.apk
+.\gradlew.bat assembleDebug
 ```
 
-#### Sign the APK (for sideloading)
+Output: `app\build\outputs\apk\debug\app-debug.apk`
 
-```bash
-# Align the APK
-zipalign -v -p 4 \
-  app/build/outputs/apk/release/app-release-unsigned.apk \
-  app/build/outputs/apk/release/app-release-aligned.apk
+This APK is automatically signed with a debug key and can be installed directly.
 
-# Sign with debug keystore
-apksigner sign \
-  --ks ~/.android/debug.keystore \
-  --ks-key-alias androiddebugkey \
-  --ks-pass pass:android \
-  --key-pass pass:android \
-  app/build/outputs/apk/release/app-release-aligned.apk
+#### Release APK
 
-# Verify
-apksigner verify app/build/outputs/apk/release/app-release-aligned.apk
+```powershell
+cd mesh-android
+.\gradlew.bat assembleRelease
 ```
 
-The `zipalign` and `apksigner` tools are in your Android SDK build-tools directory:
-```
-$ANDROID_HOME/build-tools/<version>/zipalign
-$ANDROID_HOME/build-tools/<version>/apksigner
+Output: `app\build\outputs\apk\release\app-release-unsigned.apk`
+
+This APK is **unsigned** and must be signed before it can be installed on a device.
+
+#### Sign the Release APK
+
+The signing tools are in your Android SDK build-tools directory. Find your version:
+
+```powershell
+dir "$env:LOCALAPPDATA\Android\Sdk\build-tools"
 ```
 
-#### Install on Device
+Then sign (replace `35.0.0` with your version):
 
-```bash
-# Via USB (ADB)
-adb install app/build/outputs/apk/release/app-release-aligned.apk
+```powershell
+# Set the build tools path for convenience
+$BT = "$env:LOCALAPPDATA\Android\Sdk\build-tools\35.0.0"
 
-# Or transfer the APK file to your phone and open it
+# Step 1: Align the APK
+& "$BT\zipalign.exe" -v -p 4 `
+  app\build\outputs\apk\release\app-release-unsigned.apk `
+  app\build\outputs\apk\release\app-release-aligned.apk
+
+# Step 2: Sign with the debug keystore
+& "$BT\apksigner.bat" sign `
+  --ks "$env:USERPROFILE\.android\debug.keystore" `
+  --ks-key-alias androiddebugkey `
+  --ks-pass pass:android `
+  --key-pass pass:android `
+  app\build\outputs\apk\release\app-release-aligned.apk
+
+# Step 3: Verify the signature
+& "$BT\apksigner.bat" verify app\build\outputs\apk\release\app-release-aligned.apk
 ```
+
+If you don't have a debug keystore yet (first time building Android on this machine), create one:
+```powershell
+keytool -genkey -v -keystore "$env:USERPROFILE\.android\debug.keystore" `
+  -storepass android -alias androiddebugkey -keypass android `
+  -keyalg RSA -keysize 2048 -validity 10000 `
+  -dname "CN=Android Debug,O=Android,C=US"
+```
+
+#### Install on Phone
+
+**Via ADB (USB debugging enabled on phone):**
+```powershell
+adb install app\build\outputs\apk\release\app-release-aligned.apk
+
+# If upgrading over an existing install:
+adb install -r app\build\outputs\apk\release\app-release-aligned.apk
+```
+
+**Without ADB:** Copy the signed APK to your phone (USB cable, cloud drive, email to yourself) and open it. You may need to enable "Install from unknown sources" in Android settings.
 
 ### Run Tests
 
-```bash
-# All tests (40 tests across crypto, identity, message, routing, gateway)
+```powershell
+# All 40 tests
 cargo test
 
-# Specific crate
+# Just mesh-core tests
 cargo test -p mesh-core
 
-# Specific test
+# A specific test by name
 cargo test -p mesh-core test_encrypt_decrypt
+
+# With output shown
+cargo test -- --nocapture
 ```
 
 ### Build Just the Rust FFI Library (without Gradle)
 
-```bash
-# Build for Android ARM64
+If you only want to compile the native `.so` files without building the full APK:
+
+```powershell
+# ARM64 (physical phones)
 cargo ndk -t arm64-v8a build --release -p mesh-ffi
 
-# Build for Android x86_64 (emulator)
+# x86_64 (Android emulator)
 cargo ndk -t x86_64 build --release -p mesh-ffi
 
-# Build for both and output to jniLibs
-cargo ndk \
-  -t arm64-v8a \
-  -t x86_64 \
-  -o mesh-android/app/src/main/jniLibs \
-  build --release -p mesh-ffi
+# Both targets, output directly into jniLibs
+cargo ndk -t arm64-v8a -t x86_64 -o mesh-android\app\src\main\jniLibs build --release -p mesh-ffi
 ```
+
+### Troubleshooting
+
+**"linker `link.exe` not found"** -- You need the VS C++ Build Tools installed (step 2 above).
+
+**"failed to run custom build command for cpal"** -- cpal needs Windows SDK headers. Make sure you selected "Desktop development with C++" during VS Build Tools install.
+
+**Gradle: "ANDROID_HOME is not set"** -- Set the environment variable:
+```powershell
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+```
+Or add it permanently in System Properties > Environment Variables.
+
+**Gradle: "NDK not installed"** -- Open Android Studio > SDK Manager > SDK Tools > check "NDK (Side by side)" > Apply.
+
+**cargo-ndk: "no such command"** -- Run `cargo install cargo-ndk` and make sure `%USERPROFILE%\.cargo\bin` is on your PATH.
+
+**"Access denied" or firewall popup** -- Windows Firewall blocks new apps from listening on network ports. Click "Allow access" when prompted, or pre-allow ports 7331 (UDP) and 7332 (TCP) in Windows Firewall settings.
 
 ---
 

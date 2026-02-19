@@ -1,14 +1,28 @@
-i like the andorid app im on samsun one ui 8,  andorid 16
+ High value, realistic scope:                                                                                                                                                              - Bluetooth transport -- mesh works without WiFi, two phones in a field                                                                                                                 
+  - Message persistence -- right now messages disappear when you close the app, storing chat history locally                                                                              
+  - Read receipts / delivery confirmation -- know if your message actually reached the peer                                                                                               
+  - Group chats -- named channels that multiple peers can join, not just broadcast-to-all or 1-to-1
+  - Offline message queue -- if a peer is temporarily disconnected, hold messages and deliver when they reconnect
 
-it install nicely and has the get started,
+  UI/UX improvements:
+  - Contact list / nicknames -- save peers you've seen before so they're recognized when they reappear
+  - Notification sounds -- audio alert on incoming message, call, or SOS
+  - Image preview -- if a received file is a photo, show a thumbnail inline in chat instead of just a filename
+  - Typing indicator -- shows when someone is composing a message to you
+  - Dark/light theme toggle on Android (desktop already has dark theme)
 
-but ive notoced, i click start mesh node and in notfocation sit starts
+  Network resilience:
+  - Store-and-forward relaying -- node C holds a message for offline node B until B comes back
+  - Multi-hop routing improvements -- smarter routing than pure flooding (maybe gossip protocol or routing tables)
+  - WiFi Direct / hotspot auto-creation -- if no shared network exists, one device creates a hotspot automatically
 
-and says rynnug,
-but the  radar pahe still says start esh node, if i have ne staredm then i shiul have kill node here an
-in the settjgs tabnitfucations says mes node runnunokay have you run the build fg, but node info days node id not stated
+  Security:
+  - Message signing verification -- verify messages actually came from who they claim (you have Ed25519 keys but messages aren't signed yet)
+  - Disappearing messages -- auto-delete after a timer
+  - Key fingerprint verification -- QR code or emoji-based safety number like Signal
 
-its important to shw the user what mode the ap is sung in terms on connectivity, 
 
-ie my device has these conectitions options in its harware
-and it currenly using a specific mode
+i would wanna mask the app as if ts for disastrer recovery, so that we dnt run into any legal issues
+rebrand the app, i wanna call it mass action, with a cool logo
+
+maybe a cuople of features that are like medical aid/disater area focued to hide behind 
