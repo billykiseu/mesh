@@ -1,3 +1,21 @@
+ Project: MassKritical
+ working name-mesh
+ Kraftbox 2026
+ Billy Kiseu 2026
+
+ Android-Desktop app for peer-to-peer mesh communication without internet, 
+ for use in disaster recovery, organisation, or any situation where traditional networks are unavailable or untrusted. 
+ Built with Rust and egui.
+
+ Documentation in readme.md
+ and quick build in build.md
+
+
+1.  bare minimum, build, send and recieve text ---------done
+2.  expand features: peer discover, file sharing, Voice notes, calling, beetr UI for the desktop -----done
+3.  final set of major features, clean up system, validate, bluetooth, featire enhancemensts ar below-------progress
+
+#Phase 3 Things to do 
  High value, realistic scope:                                                                                                                                                              - Bluetooth transport -- mesh works without WiFi, two phones in a field                                                                                                                 
   - Message persistence -- right now messages disappear when you close the app, storing chat history locally                                                                              
   - Read receipts / delivery confirmation -- know if your message actually reached the peer                                                                                               
@@ -22,7 +40,7 @@
   - Key fingerprint verification -- QR code or emoji-based safety number like Signal
 
 
-i would wanna mask the app as if ts for disastrer recovery, so that we dnt run into any legal issues
-rebrand the app, i wanna call it mass action, with a cool logo
+i would wanna mask the app as if ts for disaster recovery, so that we dnt run into any legal issues
+rebrand the app, with a logos and color scheme. 
 
-maybe a cuople of features that are like medical aid/disater area focued to hide behind 
+maybe a couple of features that are like medical aid/disater area focued to hide behind 
